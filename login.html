@@ -1,0 +1,175 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!-- বাংলা ও ইংরেজি অক্ষর সঠিকভাবে দেখানোর জন্য -->
+    <meta charset="UTF-8">
+
+    <!-- মোবাইল ও কম্পিউটারে responsive করার জন্য -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Browser tab-এর নাম -->
+    <title>BidMart | Login</title>
+
+    <!-- CSS ফাইল যুক্ত করা -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="register-page">
+
+    <!-- উপরের Navigation Bar -->
+    <header class="topbar">
+
+        <!-- Logo-তে ক্লিক করলে Home Page-এ যাবে -->
+        <a href="index.html" class="logo">
+            BidMart<span>.</span>
+        </a>
+
+        <!-- Home Page-এর লিংক -->
+        <a href="index.html" class="home-link">Home</a>
+
+    </header>
+
+    <!-- Login Page-এর মূল অংশ -->
+    <main class="page-container">
+
+        <!-- Login Page-এর Heading -->
+        <div class="page-heading">
+            <p class="eyebrow">WELCOME BACK</p>
+
+            <h1>Login to BidMart</h1>
+
+            <p>Enter your account details to continue.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <!-- Login Form Card -->
+        <div class="registration-grid single-registration">
+
+            <section class="register-card user-card">
+
+                <!-- Login Icon -->
+                <div class="role-icon">🔐</div>
+
+                <h2>Account Login</h2>
+
+                <p class="role-description">
+                    Login to shop, bid, and manage your account.
+                </p>
+
+                <!-- Login Form শুরু -->
+                <!-- Flask Backend যুক্ত হলে action="/login" ব্যবহার হবে -->
+                <form action="/login" method="post" id="loginForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <!-- Account Role নির্বাচন -->
+                    <label for="role">Account Role</label>
+
+                    <select id="role" name="role" required>
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                        <option value="superadmin">Superadmin</option>
+                    </select>
+
+                    <!-- Email Address -->
+                    <label for="email">Email Address</label>
+
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Enter your registered email"
+                        autocomplete="username"
+                        required
+                    >
+
+                    <!-- Password -->
+                    <label for="password">Password</label>
+
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Enter your password"
+                        autocomplete="current-password"
+                        required
+                    >
+
+                    <!-- Password দেখানো বা লুকানোর Checkbox -->
+                    <div class="password-toggle">
+                        <input type="checkbox" id="showPassword">
+
+                        <label for="showPassword">
+                            Show Password
+                        </label>
+                    </div>
+
+                    <!-- Login Button -->
+                    <button type="submit" class="register-button">
+                        Login
+                    </button>
+
+                </form>
+                <!-- Login Form শেষ -->
+
+                <p class="form-note">
+                    <a href="forgot-password">Forgot your password?</a>
+                </p>
+
+                <!-- Registration Page-এর লিংক -->
+                <p class="form-note">
+                    Don't have an account?
+                    <a href="register.html">Register Now</a>
+                </p>
+
+            </section>
+
+        </div>
+
+    </main>
+
+    <!-- Footer Section -->
+    <footer class="footer">
+
+        <p>© 2026 BidMart | CSE Project Work II</p>
+
+        <p>North East University Bangladesh</p>
+
+    </footer>
+
+    <!-- JavaScript শুরু -->
+    <script>
+
+        // Password input এবং checkbox নির্বাচন
+        const passwordInput = document.getElementById("password");
+        const showPassword = document.getElementById("showPassword");
+
+        // Checkbox-এ ক্লিক করলে Password দেখা যাবে বা লুকাবে
+        showPassword.addEventListener("change", function () {
+
+            if (showPassword.checked) {
+
+                // Password-এর অক্ষর দৃশ্যমান হবে
+                passwordInput.type = "text";
+
+            } else {
+
+                // Password আবার লুকানো হবে
+                passwordInput.type = "password";
+
+            }
+
+        });
+
+    </script>
+    <!-- JavaScript শেষ -->
+
+</body>
+
+</html>

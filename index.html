@@ -1,0 +1,175 @@
+
+<!DOCTYPE html> <!-- ব্রাউজারকে জানায় যে এটি HTML5 ডকুমেন্ট -->
+<html lang="en"> <!-- HTML পেজ শুরু; lang="en" দিয়ে ভাষা ইংরেজি বোঝানো হয়েছে -->
+<head> <!-- পেজের সেটিংস ও তথ্য এখানে থাকবে -->
+    <meta charset="UTF-8"> <!-- বাংলা ও অন্যান্য ভাষার অক্ষর ঠিকভাবে দেখায় -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- মোবাইল ও কম্পিউটারে পেজের প্রস্থ ঠিক রাখে -->
+    <title>BidMart | Online Shopping & Auction</title> <!-- ব্রাউজারের tab-এ পেজের নাম দেখায় -->
+    <link rel="stylesheet" href="style.css"> <!-- HTML-এর সঙ্গে CSS ফাইল যুক্ত করে -->
+</head> <!-- head অংশ শেষ -->
+<body> <!-- ওয়েবপেজে দেখা যায় এমন সব content এখানে থাকবে -->
+
+    <!-- Header অংশ শুরু: Logo এবং Navigation Menu -->
+    <header class="header"> <!-- header হলো পেজের উপরের অংশ -->
+        <div class="container navbar"> <!-- content-কে নির্দিষ্ট প্রস্থে রাখে এবং menu সাজায় -->
+
+            <a href="index.html" class="logo">BidMart<span>.</span></a> <!-- Logo; ক্লিক করলে home page-এ যাবে -->
+
+            <nav class="nav-links"> <!-- Navigation menu শুরু -->
+                <a href="index.html" class="active">Home</a> <!-- Home page-এর লিংক -->
+                <a href="#products">Products</a> <!-- Products অংশে নিয়ে যাবে -->
+                <a href="#auctions">Auctions</a> <!-- Auctions অংশে নিয়ে যাবে -->
+                <a href="#about">About</a> <!-- About অংশে নিয়ে যাবে -->
+            </nav> <!-- Navigation menu শেষ -->
+
+            <div class="nav-buttons"> <!-- Login ও Register button রাখার অংশ -->
+                {% if current_user_email %}
+                <span class="login-btn">{{ current_user_email }}</span>
+                <form action="/logout" method="post" class="logout-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="register-btn logout-button">Log out</button>
+                </form>
+                {% else %}
+                <a href="login.html" class="login-btn">Login</a> <!-- Login page-এর লিংক -->
+                <a href="register.html" class="register-btn">Register</a> <!-- Registration page-এর লিংক -->
+                {% endif %}
+            </div> <!-- Navigation buttons শেষ -->
+
+        </div> <!-- navbar container শেষ -->
+    </header> <!-- Header শেষ -->
+
+    <!-- Hero Section শুরু: পেজের প্রথম বড় পরিচিতি অংশ -->
+    <section class="hero"> <!-- Hero section-এর শুরু -->
+        <div class="container hero-content"> <!-- Hero content-কে মাঝখানে সাজায় -->
+
+            <div class="hero-text"> <!-- Hero-র লেখা ও button রাখে -->
+                <p class="tagline">WELCOME TO BIDMART</p> <!-- ছোট পরিচিতিমূলক লেখা -->
+
+                <h1>Shop Smart.<br>Bid Better.</h1> <!-- প্রধান শিরোনাম; br নতুন লাইন তৈরি করে -->
+
+                <p class="hero-description"> <!-- Hero-র বর্ণনা শুরু -->
+                    Discover amazing products, enjoy easy online shopping,
+                    and join exciting auctions to win your favorite items.
+                </p> <!-- Hero-র বর্ণনা শেষ -->
+
+                <div class="hero-buttons"> <!-- Hero-র দুটি button একসঙ্গে রাখে -->
+                    <a href="#products" class="primary-btn">Shop Now</a> <!-- Products section-এ যাওয়ার button -->
+                    <a href="#auctions" class="secondary-btn">Explore Auctions</a> <!-- Auction section-এ যাওয়ার button -->
+                </div> <!-- Hero buttons শেষ -->
+            </div> <!-- Hero text শেষ -->
+
+            <div class="hero-image"> <!-- Hero-র ডান পাশের ছবির অংশ -->
+                <img src="https://placehold.co/560x380/e8f1ff/173b70?text=BidMart+Shopping"
+                     alt="BidMart online shopping banner"> <!-- উদাহরণস্বরূপ ছবি দেখায়; alt ছবির বিকল্প বর্ণনা -->
+            </div> <!-- Hero image শেষ -->
+
+        </div> <!-- Hero container শেষ -->
+    </section> <!-- Hero Section শেষ -->
+
+    <!-- Features Section শুরু: ওয়েবসাইটের সুবিধাগুলো দেখায় -->
+    <section class="features"> <!-- Features section শুরু -->
+        <div class="container feature-grid"> <!-- Feature card-গুলো পাশাপাশি সাজায় -->
+
+            <div class="feature-card"> <!-- প্রথম feature card -->
+                <div class="feature-icon">🛍️</div> <!-- Shopping-এর প্রতীক -->
+                <h3>Easy Shopping</h3> <!-- Feature-এর শিরোনাম -->
+                <p>Buy your favorite products with ease.</p> <!-- Feature-এর সংক্ষিপ্ত বর্ণনা -->
+            </div> <!-- প্রথম feature card শেষ -->
+
+            <div class="feature-card"> <!-- দ্বিতীয় feature card -->
+                <div class="feature-icon">🔨</div> <!-- Auction-এর প্রতীক -->
+                <h3>Online Auction</h3> <!-- Feature-এর শিরোনাম -->
+                <p>Place bids and compete for products.</p> <!-- Auction-এর বর্ণনা -->
+            </div> <!-- দ্বিতীয় feature card শেষ -->
+
+            <div class="feature-card"> <!-- তৃতীয় feature card -->
+                <div class="feature-icon">🔒</div> <!-- Security-এর প্রতীক -->
+                <h3>Secure Shopping</h3> <!-- Feature-এর শিরোনাম -->
+                <p>Designed for a reliable shopping experience.</p> <!-- নিরাপদ shopping অভিজ্ঞতার বর্ণনা -->
+            </div> <!-- তৃতীয় feature card শেষ -->
+
+        </div> <!-- Feature grid শেষ -->
+    </section> <!-- Features Section শেষ -->
+
+    <!-- Products Section শুরু: কিছু উদাহরণ পণ্য দেখায় -->
+    <section class="products section-padding" id="products"> <!-- id="products" দিয়ে menu link কাজ করে -->
+        <div class="container"> <!-- Products-এর content-কে মাঝখানে রাখে -->
+
+            <div class="section-heading"> <!-- Section title ও description রাখে -->
+                <p class="tagline">OUR COLLECTION</p> <!-- ছোট section label -->
+                <h2>Featured Products</h2> <!-- Products section-এর শিরোনাম -->
+                <p>Explore some of our popular products.</p> <!-- Section-এর বর্ণনা -->
+            </div> <!-- Section heading শেষ -->
+
+            <div class="product-grid"> <!-- Product card-গুলো পাশাপাশি রাখে -->
+
+                <div class="product-card"> <!-- প্রথম product card -->
+                    <img src="https://placehold.co/400x260/f0f4fa/173b70?text=Headphones" alt="Headphones"> <!-- Headphones-এর placeholder ছবি -->
+                    <div class="product-info"> <!-- পণ্যের নাম ও দাম রাখে -->
+                        <p class="category">Electronics</p> <!-- পণ্যের category -->
+                        <h3>Wireless Headphones</h3> <!-- পণ্যের নাম -->
+                        <p class="price">৳ 2,500</p> <!-- পণ্যের উদাহরণমূলক দাম -->
+                        <a href="#" class="product-btn">Buy Now</a> <!-- কেনার button; এখনো কাজ করে না -->
+                    </div> <!-- প্রথম পণ্যের তথ্য শেষ -->
+                </div> <!-- প্রথম product card শেষ -->
+
+                <div class="product-card"> <!-- দ্বিতীয় product card -->
+                    <img src="https://placehold.co/400x260/f0f4fa/173b70?text=Smart+Watch" alt="Smart Watch"> <!-- Smart Watch-এর placeholder ছবি -->
+                    <div class="product-info"> <!-- পণ্যের তথ্য রাখে -->
+                        <p class="category">Accessories</p> <!-- পণ্যের category -->
+                        <h3>Smart Watch</h3> <!-- পণ্যের নাম -->
+                        <p class="price">৳ 3,200</p> <!-- পণ্যের উদাহরণমূলক দাম -->
+                        <a href="#" class="product-btn">Buy Now</a> <!-- কেনার button; এখনো কাজ করে না -->
+                    </div> <!-- দ্বিতীয় পণ্যের তথ্য শেষ -->
+                </div> <!-- দ্বিতীয় product card শেষ -->
+
+                <div class="product-card"> <!-- তৃতীয় product card -->
+                    <img src="https://placehold.co/400x260/f0f4fa/173b70?text=Sneakers" alt="Sneakers"> <!-- Sneakers-এর placeholder ছবি -->
+                    <div class="product-info"> <!-- পণ্যের তথ্য রাখে -->
+                        <p class="category">Fashion</p> <!-- পণ্যের category -->
+                        <h3>Casual Sneakers</h3> <!-- পণ্যের নাম -->
+                        <p class="price">৳ 2,000</p> <!-- পণ্যের উদাহরণমূলক দাম -->
+                        <a href="#" class="product-btn">Buy Now</a> <!-- কেনার button; এখনো কাজ করে না -->
+                    </div> <!-- তৃতীয় পণ্যের তথ্য শেষ -->
+                </div> <!-- তৃতীয় product card শেষ -->
+
+            </div> <!-- Product grid শেষ -->
+        </div> <!-- Products container শেষ -->
+    </section> <!-- Products Section শেষ -->
+
+    <!-- Auction Section শুরু -->
+    <section class="auctions section-padding" id="auctions"> <!-- Auction section-এর শুরু -->
+        <div class="container auction-box"> <!-- Auction-এর content সাজায় -->
+
+            <div class="auction-text"> <!-- Auction-এর লেখা রাখে -->
+                <p class="tagline">BID AND WIN</p> <!-- Auction section-এর label -->
+                <h2>Join Exciting Auctions</h2> <!-- Auction section-এর শিরোনাম -->
+                <p>Discover auction products and compete with other bidders. The highest valid bid at the deadline wins.</p> <!-- Auction কীভাবে কাজ করে তা বোঝায় -->
+                <a href="#" class="primary-btn">View Auctions</a> <!-- Auction দেখার button; এখনো backend যুক্ত নেই -->
+            </div> <!-- Auction text শেষ -->
+
+            <div class="auction-icon">🔨</div> <!-- Auction বোঝানোর বড় প্রতীক -->
+
+        </div> <!-- Auction box শেষ -->
+    </section> <!-- Auction Section শেষ -->
+
+    <!-- About Section শুরু -->
+    <section class="about section-padding" id="about"> <!-- About section শুরু -->
+        <div class="container about-content"> <!-- About content সাজায় -->
+            <p class="tagline">ABOUT OUR PROJECT</p> <!-- Project-এর পরিচিতি label -->
+            <h2>What is BidMart?</h2> <!-- Project পরিচিতির শিরোনাম -->
+            <p>BidMart is an e-commerce and online auction system developed as a CSE Project Work II project at North East University Bangladesh. It aims to combine regular online shopping with time-limited product bidding.</p> <!-- প্রজেক্টের মূল উদ্দেশ্য ব্যাখ্যা করে -->
+        </div> <!-- About content শেষ -->
+    </section> <!-- About Section শেষ -->
+
+    <!-- Footer শুরু: পেজের নিচের অংশ -->
+    <footer class="footer"> <!-- Footer section শুরু -->
+        <div class="container footer-content"> <!-- Footer content সাজায় -->
+            <a href="index.html" class="logo footer-logo">BidMart<span>.</span></a> <!-- Footer-এ logo দেখায় -->
+            <p>© 2026 BidMart. CSE Project Work II.</p> <!-- Copyright ও project course-এর পরিচয় -->
+            <p>North East University Bangladesh</p> <!-- বিশ্ববিদ্যালয়ের নাম -->
+        </div> <!-- Footer content শেষ -->
+    </footer> <!-- Footer শেষ -->
+
+</body> <!-- দৃশ্যমান পেজের content শেষ -->
+</html> <!-- সম্পূর্ণ HTML ডকুমেন্ট শেষ -->

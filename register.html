@@ -1,0 +1,153 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BidMart | Registration</title>
+
+    <!-- CSS ফাইল যুক্ত করা হয়েছে -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="register-page">
+
+    <!-- উপরের Navigation Bar -->
+    <header class="topbar">
+        <a href="index.html" class="logo">BidMart<span>.</span></a>
+        <a href="index.html" class="home-link">Home</a>
+    </header>
+
+    <!-- Registration-এর মূল অংশ -->
+    <main class="page-container">
+
+        <div class="page-heading">
+            <p class="eyebrow">JOIN BIDMART</p>
+            <h1>Create Your Account</h1>
+            <p>Fill in your information and select your account role.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <!-- এখানে একটি মাত্র Registration Card থাকবে -->
+        <div class="registration-grid single-registration">
+
+            <section class="register-card user-card">
+
+                <div class="role-icon">👤</div>
+                <h2>Registration Form</h2>
+
+                <!-- একটি মাত্র Registration Form -->
+                <form action="/register" method="post" id="registerForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <!-- Full Name -->
+                    <label for="full-name">Full Name</label>
+                    <input
+                        type="text"
+                        id="full-name"
+                        name="full_name"
+                        placeholder="Enter your full name"
+                        autocomplete="name"
+                        required
+                    >
+
+                    <!-- Email -->
+                    <label for="email">Email Address</label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Enter your email"
+                        autocomplete="email"
+                        required
+                    >
+
+                    <!-- Phone Number -->
+                    <label for="phone">Phone Number (optional)</label>
+                    <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        placeholder="Enter your phone number (optional)"
+                        autocomplete="tel"
+                    >
+
+                    <!-- Account Role নির্বাচন -->
+                    <label for="role">Account Role</label>
+                    <select id="role" name="role">
+                        <option value="user" selected>User</option>
+                    </select>
+
+                    <!-- Password -->
+                    <label for="password">Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Create a password"
+                        autocomplete="new-password"
+                        minlength="8"
+                        required
+                    >
+
+                    <!-- Confirm Password -->
+                    <label for="confirm-password">Confirm Password</label>
+                    <input
+                        type="password"
+                        id="confirm-password"
+                        name="confirm_password"
+                        placeholder="Enter password again"
+                        autocomplete="new-password"
+                        minlength="8"
+                        required
+                    >
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="register-button">
+                        Create Account
+                    </button>
+
+                </form>
+
+                <p class="form-note">
+                    Already have an account? <a href="login.html">Login</a>
+                </p>
+
+                <form action="/resend-verification" method="post" class="resend-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label for="resend-email">Didn't receive a verification email?</label>
+                    <input type="email" id="resend-email" name="email" placeholder="Enter your email" required>
+                    <button type="submit" class="secondary-btn">Resend verification link</button>
+                </form>
+
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>© 2026 BidMart | CSE Project Work II</p>
+        <p>North East University Bangladesh</p>
+    </footer>
+
+    <!-- Role অনুযায়ী অতিরিক্ত ফিল্ড দেখানোর JavaScript -->
+    <script>
+        // Password দুটো একই কি না, তা পরীক্ষা করা
+        document.getElementById("registerForm").addEventListener("submit", function(event) {
+            const password = document.getElementById("password").value;
+            const confirmPassword = document.getElementById("confirm-password").value;
+
+            if (password !== confirmPassword) {
+                event.preventDefault();
+                alert("Password and Confirm Password do not match!");
+            }
+        });
+    </script>
+
+</body>
+</html>
