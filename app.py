@@ -234,7 +234,20 @@ def issue_password_reset(email):
 @app.get("/")
 @app.get("/index.html")
 def home():
-    return render_template("index.html", current_user_email=session.get("user_email"))
+    current_user_name = None
+    if session.get("user_id"):
+        with database() as connection:
+            account = connection.execute(
+                "SELECT full_name FROM accounts WHERE id = ?",
+                (session["user_id"],),
+            ).fetchone()
+        if account:
+            current_user_name = account["full_name"]
+    return render_template(
+        "index.html",
+        current_user_email=session.get("user_email"),
+        current_user_name=current_user_name,
+    )
 
 
 @app.get("/style.css")
@@ -410,7 +423,7 @@ def login():
     password = request.form.get("password", "")
     with database() as connection:
         account = connection.execute(
-            "SELECT id, email, password_hash, is_verified FROM accounts WHERE email = ?",
+            "SELECT id, email, full_name, password_hash, is_verified FROM accounts WHERE email = ?",
             (email,),
         ).fetchone()
 
@@ -422,6 +435,7 @@ def login():
     session.clear()
     session["user_id"] = account["id"]
     session["user_email"] = account["email"]
+    session["user_name"] = account["full_name"]
     flash("You are logged in.", "success")
     return redirect(url_for("home"))
 

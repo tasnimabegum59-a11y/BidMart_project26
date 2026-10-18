@@ -77,7 +77,75 @@ class AuthenticationFlowTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 302)
         home = self.client.get("/")
-        self.assertIn(self.email.encode(), home.data)
+        self.assertIn(b"Test Account", home.data)
+        self.assertIn(b'/static/bidmart-logo.png', home.data)
+        self.assertIn(b'/static/bidmart-favicon.png', home.data)
+        self.assertIn(b'/static/hero-sale.png', home.data)
+        self.assertIn(b'/static/live-auction-card.png', home.data)
+        self.assertIn(b'/static/summer-savings-card.png', home.data)
+        self.assertLess(home.data.index(b'class="hero"'), home.data.index(b'class="promotional-cards"'))
+        self.assertLess(home.data.index(b'class="promotional-cards"'), home.data.index(b'id="products"'))
+        self.assertIn(b'class="container promotional-grid"', home.data)
+        self.assertEqual(home.data.count(b'class="promotional-card"'), 2)
+        self.assertEqual(home.data.count(b'class="product-card"'), 6)
+        for product_name in (
+            b"iPhone 14 Pro Max",
+            b"Smart Watch",
+            b"JBL Wireless Headphones",
+            b"Casual Sneakers",
+            b"Wireless Earbuds",
+            b"Compact Digital Camera",
+        ):
+            self.assertIn(product_name, home.data)
+        product_images = (
+            "iphone-14-pro.png",
+            "smart-watch.png",
+            "jbl-headphones.png",
+            "casual-sneakers.svg",
+            "wireless-earbuds.svg",
+            "digital-camera.svg",
+        )
+        for product_image in product_images:
+            self.assertIn(f"/static/products/{product_image}".encode(), home.data)
+            with self.client.get(f"/static/products/{product_image}") as image_response:
+                self.assertEqual(image_response.status_code, 200, product_image)
+        logo = self.client.get("/static/bidmart-logo.png")
+        favicon = self.client.get("/static/bidmart-favicon.png")
+        hero_image = self.client.get("/static/hero-sale.png")
+        live_auction_image = self.client.get("/static/live-auction-card.png")
+        summer_savings_image = self.client.get("/static/summer-savings-card.png")
+        self.assertEqual(logo.status_code, 200)
+        self.assertEqual(logo.mimetype, "image/png")
+        self.assertEqual(favicon.status_code, 200)
+        self.assertEqual(favicon.mimetype, "image/png")
+        self.assertEqual(hero_image.status_code, 200)
+        self.assertEqual(hero_image.mimetype, "image/png")
+        self.assertEqual(live_auction_image.status_code, 200)
+        self.assertEqual(live_auction_image.mimetype, "image/png")
+        self.assertEqual(summer_savings_image.status_code, 200)
+        self.assertEqual(summer_savings_image.mimetype, "image/png")
+        logo.close()
+        favicon.close()
+        hero_image.close()
+        live_auction_image.close()
+        summer_savings_image.close()
+        self.assertIn(b'id="profileTrigger"', home.data)
+        self.assertIn(b'aria-label="Open dashboard for Test Account"', home.data)
+        self.assertLess(home.data.index(b'class="logo"'), home.data.index(b'class="profile-trigger"'))
+        self.assertLess(home.data.index(b'class="profile-trigger"'), home.data.index(b'<nav class="nav-links">'))
+        self.assertLess(home.data.index(b'href="index.html" class="active">Home'), home.data.index(b'href="#products">Products'))
+        self.assertLess(home.data.index(b'href="#products">Products'), home.data.index(b'href="#auctions">Auctions'))
+        self.assertLess(home.data.index(b'href="#auctions">Auctions'), home.data.index(b'href="#about">About'))
+        self.assertIn(b"Personal Dashboard", home.data)
+        self.assertIn(b"Logout", home.data)
+        self.assertIn(b"Coming soon", home.data)
+        self.assertIn(b'class="dashboard-logout-form"', home.data)
+        self.assertNotIn(b'class="logout-form"', home.data)
+        logout_response = self.client.post("/logout", data={
+            "csrf_token": self.csrf_from(home),
+        })
+        self.assertEqual(logout_response.status_code, 302)
+        self.assertNotIn(b'id="profileTrigger"', self.client.get("/").data)
 
     def test_unverified_account_cannot_login(self):
         with patch.object(bidmart, "send_verification_email"):

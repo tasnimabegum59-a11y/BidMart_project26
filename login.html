@@ -11,6 +11,7 @@
 
     <!-- Browser tab-এর নাম -->
     <title>BidMart | Login</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
 
     <!-- CSS ফাইল যুক্ত করা -->
     <link rel="stylesheet" href="style.css">
@@ -22,8 +23,8 @@
     <header class="topbar">
 
         <!-- Logo-তে ক্লিক করলে Home Page-এ যাবে -->
-        <a href="index.html" class="logo">
-            BidMart<span>.</span>
+        <a href="index.html" class="logo" aria-label="BidMart home">
+            <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
         </a>
 
         <!-- Home Page-এর লিংক -->

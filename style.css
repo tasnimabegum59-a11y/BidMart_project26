@@ -53,15 +53,25 @@ a { /* সব link নির্বাচন করে */
 .navbar { /* logo, menu এবং button-এর container */
     min-height: 78px; /* header-এর ন্যূনতম উচ্চতা নির্ধারণ করে */
     display: flex; /* child element-গুলো পাশাপাশি রাখে */
-    justify-content: space-between; /* element-গুলোর মধ্যে জায়গা ভাগ করে */
+    justify-content: flex-start; /* logo, profile, navigation এই ক্রমে রাখে */
     align-items: center; /* element-গুলো vertically মাঝখানে রাখে */
-    gap: 20px; /* element-গুলোর মধ্যে দূরত্ব রাখে */
+    gap: 16px; /* header item-গুলোর মধ্যে সংক্ষিপ্ত দূরত্ব রাখে */
 }
 
 .logo { /* BidMart logo-এর design */
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
     font-size: 29px; /* logo-এর লেখার আকার নির্ধারণ করে */
     font-weight: bold; /* logo-কে মোটা করে */
     color: var(--color-primary); /* logo-এর মূল রং নীল রাখে */
+}
+
+.logo img {
+    display: block;
+    width: 132px;
+    height: 76px;
+    object-fit: contain;
 }
 
 .logo span { /* logo-এর শেষের dot নির্বাচন করে */
@@ -70,10 +80,16 @@ a { /* সব link নির্বাচন করে */
 
 .nav-links { /* Navigation link-গুলোর container */
     display: flex; /* menu link-গুলো পাশাপাশি রাখে */
-    gap: 25px; /* প্রতিটি link-এর মধ্যে ফাঁকা জায়গা রাখে */
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-left: clamp(24px, 9vw, 108px);
 }
 
 .nav-links a { /* Navigation-এর প্রতিটি link */
+    position: relative;
+    padding: 10px 0;
     color: var(--color-secondary); /* link-এর লেখার রং নির্ধারণ করে */
     font-size: 15px; /* link-এর লেখার আকার নির্ধারণ করে */
     font-weight: 600; /* link-এর লেখা কিছুটা মোটা করে */
@@ -82,6 +98,16 @@ a { /* সব link নির্বাচন করে */
 .nav-links a:hover, /* mouse link-এর ওপর গেলে */
 .nav-links a.active { /* active class থাকা link-এর জন্য */
     color: var(--color-secondary); /* link-এর রং নীল করে */
+}
+
+.nav-links a.active::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: var(--color-secondary);
+    content: "";
 }
 
 .nav-buttons { /* Login ও Register button-এর container */
@@ -104,24 +130,92 @@ a { /* সব link নির্বাচন করে */
     font-weight: bold; /* লেখাকে মোটা করে */
 }
 
-/* ============================= */
-/* ৩. Hero Section Design */
-/* ============================= */
-
-.hero { /* Home page-এর প্রধান পরিচিতি section */
-    background-color: var(--color-surface); /* হালকা নীল background দেয় */
-    padding: 75px 0; /* section-এর উপরে ও নিচে ফাঁকা জায়গা দেয় */
+/* Homepage hero */
+.hero {
+    padding: 48px 0;
+    background-color: var(--color-surface);
 }
 
-.hero-content { /* Hero-র লেখা ও ছবির container */
-    display: flex; /* লেখা ও ছবি পাশাপাশি রাখে */
-    align-items: center; /* লেখা ও ছবিকে vertically মাঝখানে রাখে */
-    justify-content: space-between; /* দুই পাশের মধ্যে জায়গা ভাগ করে */
-    gap: 45px; /* লেখা ও ছবির মধ্যে দূরত্ব রাখে */
+.hero-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 45px;
 }
 
-.hero-text { /* Hero-র লেখার অংশ */
-    flex: 1; /* উপলব্ধ জায়গার একটি অংশ নেয় */
+.hero-text,
+.hero-image {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.hero h1 {
+    margin-bottom: 20px;
+    color: var(--color-primary);
+    font-size: 56px;
+    line-height: 1.15;
+}
+
+.hero-description {
+    max-width: 520px;
+    margin-bottom: 28px;
+    color: var(--color-secondary);
+    font-size: 17px;
+}
+
+.hero-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+}
+
+.hero-image img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 18px;
+}
+
+/* Promotional cards */
+.promotional-cards {
+    padding: 35px 0 48px;
+    background: #ffffff;
+}
+
+.promotional-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 24px;
+}
+
+.promotional-card {
+    display: block;
+    overflow: hidden;
+    border: 1px solid rgba(12, 44, 85, 0.08);
+    border-radius: 16px;
+    background: #f4f8fc;
+    box-shadow: 0 8px 22px rgba(12, 44, 85, 0.08);
+    transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.promotional-card:hover,
+.promotional-card:focus-visible {
+    box-shadow: 0 14px 30px rgba(12, 44, 85, 0.16);
+    outline: 3px solid rgba(41, 99, 116, 0.28);
+    transform: translateY(-3px);
+}
+
+.promotional-card img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .promotional-card {
+        transition: none;
+    }
 }
 
 .tagline { /* ছোট uppercase label-এর design */
@@ -130,26 +224,6 @@ a { /* সব link নির্বাচন করে */
     font-weight: bold; /* label-এর লেখা মোটা করে */
     letter-spacing: 2px; /* অক্ষরগুলোর মধ্যে দূরত্ব বাড়ায় */
     margin-bottom: 12px; /* label-এর নিচে ফাঁকা জায়গা রাখে */
-}
-
-.hero h1 { /* Hero-র প্রধান heading */
-    font-size: 56px; /* heading বড় করে */
-    line-height: 1.15; /* heading-এর লাইনের দূরত্ব নিয়ন্ত্রণ করে */
-    color: var(--color-primary); /* heading-এর রং গাঢ় নীল করে */
-    margin-bottom: 20px; /* heading-এর নিচে ফাঁকা জায়গা দেয় */
-}
-
-.hero-description { /* Hero-র বর্ণনার লেখা */
-    color: var(--color-secondary); /* বর্ণনার রং হালকা গাঢ় রাখে */
-    font-size: 17px; /* বর্ণনার লেখার আকার নির্ধারণ করে */
-    max-width: 520px; /* লেখার লাইন অতিরিক্ত লম্বা হতে দেয় না */
-    margin-bottom: 28px; /* বর্ণনার নিচে ফাঁকা জায়গা রাখে */
-}
-
-.hero-buttons { /* Hero-র button-গুলোর container */
-    display: flex; /* button-গুলো পাশাপাশি রাখে */
-    flex-wrap: wrap; /* ছোট স্ক্রিনে প্রয়োজনে পরের লাইনে পাঠায় */
-    gap: 14px; /* button-গুলোর মধ্যে দূরত্ব রাখে */
 }
 
 .primary-btn { /* প্রধান নীল button */
@@ -173,17 +247,6 @@ a { /* সব link নির্বাচন করে */
     padding: 12px 21px; /* button-এর ভেতরে জায়গা দেয় */
     border-radius: 7px; /* button-এর কোণা গোল করে */
     font-weight: bold; /* লেখাকে মোটা করে */
-}
-
-.hero-image { /* Hero-র ছবির container */
-    flex: 1; /* ছবির জন্য জায়গা রাখে */
-}
-
-.hero-image img { /* Hero-র image নির্বাচন করে */
-    width: 100%; /* container-এর পুরো প্রস্থ ব্যবহার করে */
-    display: block; /* image-এর নিচের অতিরিক্ত inline gap সরায় */
-    border-radius: 18px; /* ছবির কোণা গোল করে */
-    box-shadow: 0 15px 35px rgba(12, 44, 85, 0.10); /* ছবির নিচে হালকা shadow দেয় */
 }
 
 /* ============================= */
@@ -251,62 +314,225 @@ a { /* সব link নির্বাচন করে */
 
 .product-grid { /* Product card-গুলোর container */
     display: grid; /* CSS Grid ব্যবহার করে */
-    grid-template-columns: repeat(3, 1fr); /* তিনটি সমান column তৈরি করে */
-    gap: 25px; /* card-গুলোর মধ্যে দূরত্ব রাখে */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 22px;
 }
 
 .product-card { /* প্রতিটি product card */
-    overflow: hidden; /* card-এর বাইরে বের হওয়া content লুকায় */
-    border: 1px solid var(--color-border); /* card-এর border দেয় */
-    border-radius: 12px; /* card-এর কোণা গোল করে */
-    background-color: #ffffff; /* card-এর background সাদা রাখে */
-    box-shadow: 0 5px 20px rgba(12, 44, 85, 0.05); /* card-এ হালকা shadow দেয় */
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(98, 159, 173, 0.3);
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 6px 22px rgba(12, 44, 85, 0.07);
+    transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
-.product-card > img { /* Card-এর প্রথম image */
-    width: 100%; /* card-এর পুরো প্রস্থে ছবি দেখায় */
-    height: 220px; /* ছবির উচ্চতা নির্ধারণ করে */
-    object-fit: cover; /* ছবিকে অনুপাত বজায় রেখে জায়গায় বসায় */
-    display: block; /* ছবির নিচের অতিরিক্ত gap সরায় */
+.product-card:hover {
+    box-shadow: 0 12px 28px rgba(12, 44, 85, 0.13);
+    transform: translateY(-3px);
+}
+
+.product-main {
+    display: grid;
+    grid-template-columns: minmax(105px, 0.78fr) minmax(0, 1.22fr);
+    gap: 14px;
+    flex: 1;
+    padding: 14px 14px 10px;
+}
+
+.product-visual {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    min-height: 200px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #f3faf9, #f4f1fc);
+}
+
+.product-visual img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-height: 210px;
+    padding: 8px;
+    object-fit: contain;
+}
+
+.product-badge {
+    position: absolute;
+    z-index: 1;
+    top: 9px;
+    left: 8px;
+    max-width: calc(100% - 16px);
+    padding: 5px 8px;
+    border-radius: 999px;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.badge-bestseller {
+    background: #ed3150;
+}
+
+.badge-hot {
+    background: #169a53;
+}
+
+.badge-special {
+    background: #8533b9;
 }
 
 .product-info { /* Product-এর নাম, দাম ও button-এর container */
-    padding: 20px; /* তথ্যের চারপাশে জায়গা রাখে */
+    min-width: 0;
+    padding: 4px 0 0;
 }
 
 .category { /* Product category-এর লেখা */
-    font-size: 12px; /* category-এর লেখা ছোট রাখে */
-    color: var(--color-secondary); /* category-এর রং নীল করে */
-    font-weight: bold; /* category-এর লেখা মোটা করে */
-    margin-bottom: 5px; /* category-এর নিচে জায়গা রাখে */
+    margin-bottom: 4px;
+    color: var(--color-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .product-info h3 { /* Product name-এর heading */
-    color: var(--color-primary); /* product name-এর রং নির্ধারণ করে */
-    font-size: 18px; /* product name-এর আকার নির্ধারণ করে */
-    margin-bottom: 8px; /* নামের নিচে ফাঁকা জায়গা রাখে */
+    margin-bottom: 5px;
+    color: var(--color-primary);
+    font-size: 17px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.product-info h3 span {
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+.product-rating {
+    margin-bottom: 7px;
+    color: var(--color-secondary);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.product-rating span {
+    color: #f4a900;
+    font-size: 13px;
+    letter-spacing: -1px;
+    white-space: nowrap;
+}
+
+.product-description {
+    margin-bottom: 7px;
+    color: #486b7c;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.product-features {
+    display: grid;
+    gap: 4px;
+    padding: 0;
+    color: #456578;
+    font-size: 11px;
+    list-style: none;
+}
+
+.product-features li::before {
+    margin-right: 5px;
+    color: var(--color-accent);
+    content: "✓";
+    font-weight: 700;
+}
+
+.product-purchase {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 2px 10px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid rgba(98, 159, 173, 0.18);
+}
+
+.product-discount {
+    justify-self: start;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: #fff0f1;
+    color: #dc354b;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.old-price {
+    color: #788991;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: line-through;
 }
 
 .price { /* Product-এর দাম */
-    color: var(--color-primary); /* দামের রং গাঢ় নীল করে */
-    font-size: 20px; /* দাম বড় করে দেখায় */
-    font-weight: bold; /* দাম মোটা করে */
-    margin-bottom: 15px; /* দামের নিচে জায়গা রাখে */
+    margin: 0;
+    color: #15984a;
+    font-size: 23px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.product-actions {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .product-btn { /* Buy Now button */
-    display: block; /* button-কে সম্পূর্ণ লাইনের প্রস্থ দেয় */
-    text-align: center; /* button-এর লেখা মাঝখানে রাখে */
-    padding: 11px; /* button-এর ভেতরে জায়গা রাখে */
-    border: 1px solid var(--color-secondary); /* button-এর নীল border দেয় */
-    border-radius: 6px; /* button-এর কোণা গোল করে */
-    color: var(--color-secondary); /* button-এর লেখা নীল করে */
-    font-weight: bold; /* button-এর লেখা মোটা করে */
+    display: flex;
+    min-width: 0;
+    min-height: 40px;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 5px;
+    border: 1px solid var(--color-secondary);
+    border-radius: 8px;
+    color: var(--color-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
 }
 
 .product-btn:hover { /* Buy Now button-এর ওপর mouse গেলে */
-    background-color: var(--color-secondary); /* button-এর background নীল করে */
-    color: #ffffff; /* button-এর লেখা সাদা করে */
+    background-color: var(--color-secondary);
+    color: #ffffff;
+}
+
+.product-buy-btn {
+    background: #26748a;
+    color: #ffffff;
+}
+
+.product-buy-btn:hover {
+    background: var(--color-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .product-card {
+        transition: none;
+    }
 }
 
 /* ============================= */
@@ -393,14 +619,16 @@ a { /* সব link নির্বাচন করে */
     .nav-links { /* ছোট স্ক্রিনে menu link */
         gap: 14px; /* link-গুলোর দূরত্ব কমায় */
         flex-wrap: wrap; /* menu-কে একাধিক লাইনে যেতে দেয় */
+        flex: 1 1 100%;
+        margin-left: 0;
     }
 
-    .hero-content { /* Hero-র content */
-        gap: 25px; /* লেখা ও ছবির দূরত্ব কমায় */
+    .hero-content {
+        gap: 25px;
     }
 
-    .hero h1 { /* ছোট স্ক্রিনে Hero heading */
-        font-size: 42px; /* heading-এর আকার কমায় */
+    .hero h1 {
+        font-size: 42px;
     }
 
     .product-grid { /* Product grid */
@@ -417,32 +645,42 @@ a { /* সব link নির্বাচন করে */
     }
 
     .nav-links { /* Mobile menu */
-        justify-content: center; /* menu link-গুলো মাঝখানে রাখে */
+        width: 100%;
+        flex: 0 1 auto;
+        justify-content: space-between;
+        gap: 10px;
+        margin-left: 0;
+        flex-wrap: nowrap;
     }
 
     .nav-buttons { /* Mobile login ও register button */
         justify-content: center; /* button-গুলো মাঝখানে রাখে */
     }
 
-    .hero { /* Mobile Hero section */
-        padding: 45px 0; /* উপরে ও নিচে কম জায়গা রাখে */
+    .hero {
+        padding: 45px 0;
     }
 
-    .hero-content { /* Mobile Hero content */
-        flex-direction: column; /* লেখা ও ছবি উপর-নিচে রাখে */
-        align-items: stretch; /* content-কে উপলব্ধ প্রস্থ নিতে দেয় */
+    .hero-content {
+        flex-direction: column;
+        align-items: stretch;
     }
 
-    .hero h1 { /* Mobile Hero heading */
-        font-size: 36px; /* heading আরও ছোট করে */
+    .hero h1 {
+        font-size: 36px;
     }
 
-    .hero-image { /* Mobile Hero image */
-        width: 100%; /* ছবি পুরো প্রস্থে দেখায় */
+    .hero-image {
+        width: 100%;
     }
 
-    .feature-grid { /* Mobile feature grid */
-        grid-template-columns: 1fr; /* একটি column তৈরি করে */
+    .promotional-cards {
+        padding: 24px 0 36px;
+    }
+
+    .promotional-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .product-grid { /* Mobile product grid */
@@ -754,4 +992,237 @@ a { /* সব link নির্বাচন করে */
     margin: 0;
     font-weight: normal;
     cursor: pointer;
+}
+
+.profile-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 240px;
+    padding: 4px 6px 4px 4px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.profile-trigger:hover,
+.profile-trigger:focus-visible {
+    background: #f4f7f9;
+    border-color: var(--color-secondary);
+    outline: 3px solid rgba(41, 99, 116, 0.16);
+}
+
+.user-avatar {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    overflow: hidden;
+    border-radius: 50%;
+    background: #d8eef0;
+}
+
+.user-avatar svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.profile-trigger-copy,
+.dashboard-user-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    line-height: 1.3;
+}
+
+.profile-trigger-name {
+    overflow: hidden;
+    max-width: 150px;
+    font-size: 14px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-open {
+    overflow: hidden;
+}
+
+.dashboard-overlay[hidden] {
+    display: none;
+}
+
+.dashboard-overlay {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: flex;
+}
+
+.dashboard-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(10, 16, 29, 0.48);
+    cursor: pointer;
+}
+
+.dashboard-panel {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    width: min(360px, 88vw);
+    height: 100%;
+    flex-direction: column;
+    padding: 24px 20px 18px;
+    background: #101827;
+    color: #f5f7fb;
+    box-shadow: 12px 0 32px rgba(10, 16, 29, 0.22);
+    animation: dashboard-slide-in 180ms ease-out;
+}
+
+.dashboard-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid #364152;
+}
+
+.dashboard-avatar {
+    width: 40px;
+    height: 40px;
+}
+
+.dashboard-user-copy {
+    flex: 1;
+}
+
+.dashboard-user-copy strong {
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-user-copy > span {
+    margin-top: 3px;
+    color: #aab4c4;
+    font-size: 12px;
+}
+
+.dashboard-close {
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #f5f7fb;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.dashboard-close:hover,
+.dashboard-close:focus-visible {
+    background: #303a4a;
+    outline: 2px solid #aab4c4;
+}
+
+.dashboard-navigation {
+    display: grid;
+    gap: 6px;
+    padding: 18px 0;
+}
+
+.dashboard-item {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    gap: 11px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    color: #f5f7fb;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+}
+
+a.dashboard-item:hover,
+a.dashboard-item:focus-visible,
+.dashboard-item.is-active {
+    background: #364152;
+    color: #ffffff;
+    outline: none;
+}
+
+.dashboard-item > span:first-child {
+    display: inline-flex;
+    width: 18px;
+    justify-content: center;
+    color: #c6d0df;
+    font-size: 17px;
+}
+
+.dashboard-item.is-unavailable {
+    color: #d5dbe5;
+}
+
+.dashboard-item small {
+    margin-left: auto;
+    color: #aab4c4;
+    font-size: 10px;
+}
+
+.dashboard-logout-form {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid #364152;
+}
+
+.dashboard-logout {
+    display: flex;
+    width: 100%;
+    min-height: 42px;
+    align-items: center;
+    gap: 11px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #ff8791;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dashboard-logout:hover,
+.dashboard-logout:focus-visible {
+    background: rgba(255, 135, 145, 0.12);
+    outline: 2px solid #ff8791;
+}
+
+@keyframes dashboard-slide-in {
+    from {
+        opacity: 0.7;
+        transform: translateX(-12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-panel {
+        animation: none;
+    }
 }
