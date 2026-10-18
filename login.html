@@ -68,15 +68,6 @@
                 <form action="/login" method="post" id="loginForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                    <!-- Account Role নির্বাচন -->
-                    <label for="role">Account Role</label>
-
-                    <select id="role" name="role" required>
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
-                        <option value="superadmin">Superadmin</option>
-                    </select>
-
                     <!-- Email Address -->
                     <label for="email">Email Address</label>
 

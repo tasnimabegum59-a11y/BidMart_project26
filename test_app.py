@@ -68,12 +68,12 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/verify/{token}").status_code, 302)
 
         response = self.client.get("/login.html")
+        self.assertNotIn(b'name="role"', response.data)
         csrf = self.csrf_from(response)
         response = self.client.post("/login", data={
             "csrf_token": csrf,
             "email": self.email,
             "password": "secure-test-password",
-            "role": "user",
         })
         self.assertEqual(response.status_code, 302)
         home = self.client.get("/")
@@ -97,7 +97,6 @@ class AuthenticationFlowTests(unittest.TestCase):
             "csrf_token": self.csrf_from(response),
             "email": self.email,
             "password": "secure-test-password",
-            "role": "user",
         })
         self.assertEqual(login_response.status_code, 302)
         with self.client.session_transaction() as session:
@@ -132,7 +131,6 @@ class AuthenticationFlowTests(unittest.TestCase):
             "csrf_token": self.csrf_from(login_page),
             "email": self.email,
             "password": "secure-admin-password",
-            "role": "admin",
         })
         self.assertIn(login_response.headers["Location"], ("/", "/index.html"))
         with self.client.session_transaction() as session:
@@ -210,6 +208,11 @@ class AuthenticationFlowTests(unittest.TestCase):
 
         reset_page = self.client.get(f"/reset-password/{token}")
         self.assertEqual(reset_page.status_code, 200)
+        self.assertIn(b'href="/style.css"', reset_page.data)
+        stylesheet = self.client.get("/style.css")
+        self.assertEqual(stylesheet.status_code, 200)
+        self.assertEqual(stylesheet.mimetype, "text/css")
+        stylesheet.close()
         reset_response = self.client.post(f"/reset-password/{token}", data={
             "csrf_token": self.csrf_from(reset_page),
             "password": "new-secure-password",
@@ -223,7 +226,6 @@ class AuthenticationFlowTests(unittest.TestCase):
             "csrf_token": self.csrf_from(login_page),
             "email": self.email,
             "password": "new-secure-password",
-            "role": "user",
         })
         self.assertIn(login_response.headers["Location"], ("/", "/index.html"))
         with self.client.session_transaction() as session:

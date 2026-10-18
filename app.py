@@ -408,14 +408,13 @@ def reset_password(token):
 def login():
     email = request.form.get("email", "").strip().casefold()
     password = request.form.get("password", "")
-    role = request.form.get("role", "user")
     with database() as connection:
         account = connection.execute(
-            "SELECT id, email, password_hash, role, is_verified FROM accounts WHERE email = ?",
+            "SELECT id, email, password_hash, is_verified FROM accounts WHERE email = ?",
             (email,),
         ).fetchone()
 
-    if (not account or role != account["role"] or not account["is_verified"]
+    if (not account or not account["is_verified"]
             or not check_password_hash(account["password_hash"], password)):
         flash("Login failed. Check your details and verify your email before signing in.", "error")
         return redirect(url_for("login_page"))
