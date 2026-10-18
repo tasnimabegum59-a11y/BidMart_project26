@@ -6,6 +6,7 @@ import smtplib
 import sqlite3
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urljoin
@@ -19,6 +20,8 @@ ROOT = Path(__file__).resolve().parent
 INSTANCE = ROOT / "instance"
 DATABASE = INSTANCE / "bidmart.sqlite3"
 DEVELOPMENT_SECRET_FILE = INSTANCE / "flask-secret.key"
+DEMO_AUCTION_SLUG = "iphone-14-pro-max"
+DEMO_AUCTION_MINIMUM_INCREMENT = 500
 load_dotenv(ROOT / ".env")
 
 
@@ -115,6 +118,27 @@ def initialize_database():
             connection.execute("ALTER TABLE accounts ADD COLUMN password_reset_token_hash TEXT")
         if "password_reset_expires_at" not in columns:
             connection.execute("ALTER TABLE accounts ADD COLUMN password_reset_expires_at INTEGER")
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS auctions (
+                id INTEGER PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                current_bid INTEGER NOT NULL CHECK (current_bid >= 0),
+                ends_at INTEGER NOT NULL
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS auction_bids (
+                id INTEGER PRIMARY KEY,
+                auction_id INTEGER NOT NULL REFERENCES auctions(id),
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                amount INTEGER NOT NULL CHECK (amount > 0),
+                created_at INTEGER NOT NULL
+            )"""
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO auctions (slug, current_bid, ends_at) VALUES (?, ?, ?)",
+            (DEMO_AUCTION_SLUG, 92500, int(time.time()) + 7 * 24 * 60 * 60),
+        )
 
 
 initialize_database()
@@ -125,6 +149,11 @@ def csrf_context():
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_urlsafe(32)
     return {"csrf_token": session["csrf_token"]}
+
+
+@app.template_filter("datetime")
+def format_datetime(timestamp):
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 @app.before_request
@@ -141,6 +170,7 @@ def protect_post_requests():
                 "request_password_reset": "forgot_password_page",
                 "reset_password": "forgot_password_page",
                 "logout": "home",
+                "place_bid": "auction_details",
             }
             return redirect(url_for(destinations.get(request.endpoint, "home")))
 
@@ -243,11 +273,101 @@ def home():
             ).fetchone()
         if account:
             current_user_name = account["full_name"]
+    auction, _ = get_auction(DEMO_AUCTION_SLUG)
     return render_template(
         "index.html",
         current_user_email=session.get("user_email"),
         current_user_name=current_user_name,
+        featured_auction=auction,
+        now=int(time.time()),
     )
+
+
+def get_auction(slug):
+    with database() as connection:
+        auction = connection.execute(
+            "SELECT id, current_bid, ends_at FROM auctions WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+        if not auction:
+            abort(404)
+        recent_bids = connection.execute(
+            "SELECT auction_bids.amount, auction_bids.created_at, accounts.full_name "
+            "FROM auction_bids JOIN accounts ON accounts.id = auction_bids.account_id "
+            "WHERE auction_bids.auction_id = ? ORDER BY auction_bids.created_at DESC, "
+            "auction_bids.id DESC LIMIT 10",
+            (auction["id"],),
+        ).fetchall()
+    return auction, recent_bids
+
+
+@app.get("/auction/" + DEMO_AUCTION_SLUG)
+def auction_details():
+    auction, recent_bids = get_auction(DEMO_AUCTION_SLUG)
+    bidder_history = []
+    for bid in recent_bids:
+        name_parts = bid["full_name"].split()
+        bidder_label = " ".join(f"{part[0]}***" for part in name_parts if part)
+        bidder_history.append({
+            "amount": bid["amount"],
+            "created_at": bid["created_at"],
+            "bidder_label": bidder_label or "Bidder",
+        })
+    return render_template(
+        "auction_detail.html",
+        auction=auction,
+        recent_bids=bidder_history,
+        current_user_name=session.get("user_name"),
+        current_user_email=session.get("user_email"),
+        minimum_bid=auction["current_bid"] + DEMO_AUCTION_MINIMUM_INCREMENT,
+        minimum_increment=DEMO_AUCTION_MINIMUM_INCREMENT,
+        now=int(time.time()),
+    )
+
+
+@app.post("/auction/" + DEMO_AUCTION_SLUG + "/bid")
+def place_bid():
+    if not session.get("user_id"):
+        flash("Log in to your verified account before placing a bid.", "error")
+        return redirect(url_for("login_page", next=url_for("auction_details")))
+
+    raw_amount = request.form.get("bid_amount", "").replace(",", "").strip()
+    try:
+        amount = int(raw_amount)
+    except ValueError:
+        flash("Enter a whole-number bid amount.", "error")
+        return redirect(url_for("auction_details"))
+
+    now = int(time.time())
+    with database() as connection:
+        auction = connection.execute(
+            "SELECT id, current_bid, ends_at FROM auctions WHERE slug = ?",
+            (DEMO_AUCTION_SLUG,),
+        ).fetchone()
+        if not auction:
+            abort(404)
+        if auction["ends_at"] <= now:
+            flash("This auction has ended and is no longer accepting bids.", "error")
+            return redirect(url_for("auction_details"))
+        minimum_bid = auction["current_bid"] + DEMO_AUCTION_MINIMUM_INCREMENT
+        if amount < minimum_bid:
+            flash(f"Your bid must be at least ৳ {minimum_bid:,}.", "error")
+            return redirect(url_for("auction_details"))
+
+        updated = connection.execute(
+            "UPDATE auctions SET current_bid = ? WHERE id = ? AND current_bid = ? AND ends_at > ?",
+            (amount, auction["id"], auction["current_bid"], now),
+        )
+        if updated.rowcount != 1:
+            flash("Another bid was placed first. Review the new current bid and try again.", "error")
+            return redirect(url_for("auction_details"))
+        connection.execute(
+            "INSERT INTO auction_bids (auction_id, account_id, amount, created_at) VALUES (?, ?, ?, ?)",
+            (auction["id"], session["user_id"], amount, now),
+        )
+
+    flash(f"Your bid of ৳ {amount:,} was placed successfully.", "success")
+    return redirect(url_for("auction_details"))
 
 
 @app.get("/style.css")
@@ -350,7 +470,10 @@ def verify_email(token):
 
 @app.get("/login.html")
 def login_page():
-    return render_template("login.html")
+    next_url = request.args.get("next", "")
+    if next_url != url_for("auction_details"):
+        next_url = ""
+    return render_template("login.html", next_url=next_url)
 
 
 @app.get("/forgot-password")
@@ -421,6 +544,9 @@ def reset_password(token):
 def login():
     email = request.form.get("email", "").strip().casefold()
     password = request.form.get("password", "")
+    next_url = request.form.get("next", "")
+    if next_url != url_for("auction_details"):
+        next_url = ""
     with database() as connection:
         account = connection.execute(
             "SELECT id, email, full_name, password_hash, is_verified FROM accounts WHERE email = ?",
@@ -430,14 +556,14 @@ def login():
     if (not account or not account["is_verified"]
             or not check_password_hash(account["password_hash"], password)):
         flash("Login failed. Check your details and verify your email before signing in.", "error")
-        return redirect(url_for("login_page"))
+        return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
 
     session.clear()
     session["user_id"] = account["id"]
     session["user_email"] = account["email"]
     session["user_name"] = account["full_name"]
     flash("You are logged in.", "success")
-    return redirect(url_for("home"))
+    return redirect(next_url or url_for("home"))
 
 
 @app.post("/logout")

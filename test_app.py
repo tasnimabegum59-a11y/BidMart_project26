@@ -1,6 +1,7 @@
 import re
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -27,7 +28,8 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def csrf_from(self, response):
-        return re.search(rb'name="csrf_token" value="([^"]+)"', response.data).group(1).decode()
+        with self.client.session_transaction() as session:
+            return session["csrf_token"]
 
     def test_registration_verification_and_login(self):
         with patch.object(bidmart, "send_verification_email") as send_email:
@@ -81,12 +83,28 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'/static/bidmart-logo.png', home.data)
         self.assertIn(b'/static/bidmart-favicon.png', home.data)
         self.assertIn(b'/static/hero-sale.png', home.data)
-        self.assertIn(b'/static/live-auction-card.png', home.data)
-        self.assertIn(b'/static/summer-savings-card.png', home.data)
+        self.assertIn(b'id="homeAuctionCountdown"', home.data)
+        self.assertIn(b'data-ends-at=', home.data)
+        self.assertIn(b'class="promo-auction-button" href="/auction/iphone-14-pro-max"', home.data)
+        self.assertIn(b'class="promo-bid-prices"', home.data)
+        self.assertIn(b'Up to', home.data)
+        self.assertIn(b'40% OFF', home.data)
+        self.assertIn(b'href="#products">Shop Now', home.data)
+        self.assertEqual(home.data.count(b'class="promo-deal-product"'), 3)
+        self.assertNotIn(b'src="/static/live-auction-card.png"', home.data)
+        self.assertNotIn(b'src="/static/summer-savings-card.png"', home.data)
+        self.assertIn(b'href="/auction/iphone-14-pro-max"', home.data)
+        with bidmart.database() as connection:
+            featured_auction = connection.execute(
+                "SELECT current_bid, ends_at FROM auctions WHERE slug = ?",
+                (bidmart.DEMO_AUCTION_SLUG,),
+            ).fetchone()
+        self.assertIn(f'data-ends-at="{featured_auction["ends_at"]}"'.encode(), home.data)
+        self.assertIn(f'৳ {featured_auction["current_bid"]:,}'.encode(), home.data)
         self.assertLess(home.data.index(b'class="hero"'), home.data.index(b'class="promotional-cards"'))
         self.assertLess(home.data.index(b'class="promotional-cards"'), home.data.index(b'id="products"'))
         self.assertIn(b'class="container promotional-grid"', home.data)
-        self.assertEqual(home.data.count(b'class="promotional-card"'), 2)
+        self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertEqual(home.data.count(b'class="product-card"'), 6)
         for product_name in (
             b"iPhone 14 Pro Max",
@@ -112,23 +130,15 @@ class AuthenticationFlowTests(unittest.TestCase):
         logo = self.client.get("/static/bidmart-logo.png")
         favicon = self.client.get("/static/bidmart-favicon.png")
         hero_image = self.client.get("/static/hero-sale.png")
-        live_auction_image = self.client.get("/static/live-auction-card.png")
-        summer_savings_image = self.client.get("/static/summer-savings-card.png")
         self.assertEqual(logo.status_code, 200)
         self.assertEqual(logo.mimetype, "image/png")
         self.assertEqual(favicon.status_code, 200)
         self.assertEqual(favicon.mimetype, "image/png")
         self.assertEqual(hero_image.status_code, 200)
         self.assertEqual(hero_image.mimetype, "image/png")
-        self.assertEqual(live_auction_image.status_code, 200)
-        self.assertEqual(live_auction_image.mimetype, "image/png")
-        self.assertEqual(summer_savings_image.status_code, 200)
-        self.assertEqual(summer_savings_image.mimetype, "image/png")
         logo.close()
         favicon.close()
         hero_image.close()
-        live_auction_image.close()
-        summer_savings_image.close()
         self.assertIn(b'id="profileTrigger"', home.data)
         self.assertIn(b'aria-label="Open dashboard for Test Account"', home.data)
         self.assertLess(home.data.index(b'class="logo"'), home.data.index(b'class="profile-trigger"'))
@@ -309,6 +319,132 @@ class AuthenticationFlowTests(unittest.TestCase):
         send_email.assert_not_called()
         page = self.client.get(post_response.headers["Location"])
         self.assertIn(b"If an account exists for that email", page.data)
+
+
+class AuctionFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_database = bidmart.DATABASE
+        bidmart.DATABASE = Path(self.temp_dir.name) / "auction-test.sqlite3"
+        bidmart.initialize_database()
+        bidmart.app.config.update(TESTING=True, SECRET_KEY="auction-test-secret")
+        self.client = bidmart.app.test_client()
+        self.auction_url = "/auction/iphone-14-pro-max"
+
+    def tearDown(self):
+        bidmart.DATABASE = self.original_database
+        self.temp_dir.cleanup()
+
+    def csrf_from(self, response):
+        with self.client.session_transaction() as session:
+            return session["csrf_token"]
+
+    def add_logged_in_bidder(self):
+        with bidmart.database() as connection:
+            cursor = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Bidding Buyer", "buyer@example.invalid", "", generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = cursor.lastrowid
+            session["user_email"] = "buyer@example.invalid"
+            session["user_name"] = "Bidding Buyer"
+
+    def test_auction_details_show_buyer_information_and_homepage_link(self):
+        homepage = self.client.get("/")
+        self.assertIn(b'href="/auction/iphone-14-pro-max"', homepage.data)
+
+        response = self.client.get(self.auction_url)
+        self.assertEqual(response.status_code, 200)
+        for detail in (
+            b"iPhone 14 Pro Max (256GB)",
+            b"Current highest bid",
+            b"Next minimum bid",
+            b"Condition",
+            b"Seller",
+            b"Delivery and returns",
+            b"Know before you bid",
+            b"Recent bid history",
+            b"Demo auction",
+        ):
+            self.assertIn(detail, response.data)
+        self.assertIn(b"Login to Bid", response.data)
+        self.assertNotIn(b'name="bid_amount"', response.data)
+
+    def test_guest_is_sent_to_login_before_bidding(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Verified Buyer", "verified@example.invalid", "", generate_password_hash("secure-password"), 1),
+            )
+        details = self.client.get(self.auction_url)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "93000",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].startswith("/login.html?next="))
+
+        login_page = self.client.get(response.headers["Location"])
+        self.assertIn(b'name="next" value="/auction/iphone-14-pro-max"', login_page.data)
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/auction/iphone-14-pro-max",
+            "email": "verified@example.invalid",
+            "password": "secure-password",
+        })
+        self.assertEqual(login_response.headers["Location"], self.auction_url)
+        self.assertIn(b'name="bid_amount"', self.client.get(self.auction_url).data)
+
+    def test_logged_in_user_can_place_a_valid_bid(self):
+        self.add_logged_in_bidder()
+        details = self.client.get(self.auction_url)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "93000",
+        })
+        self.assertEqual(response.headers["Location"], self.auction_url)
+
+        updated = self.client.get(self.auction_url)
+        self.assertIn("Your bid of ৳ 93,000 was placed successfully.".encode(), updated.data)
+        self.assertIn("৳ 93,000".encode(), updated.data)
+        self.assertIn(b"B*** B***", updated.data)
+        with bidmart.database() as connection:
+            bid_count = connection.execute("SELECT COUNT(*) FROM auction_bids").fetchone()[0]
+        self.assertEqual(bid_count, 1)
+
+    def test_bid_below_minimum_is_rejected_without_changing_current_bid(self):
+        self.add_logged_in_bidder()
+        details = self.client.get(self.auction_url)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "92999",
+        })
+        self.assertEqual(response.headers["Location"], self.auction_url)
+        page = self.client.get(self.auction_url)
+        self.assertIn(b"Your bid must be at least", page.data)
+        self.assertIn("৳ 92,500".encode(), page.data)
+        with bidmart.database() as connection:
+            bid_count = connection.execute("SELECT COUNT(*) FROM auction_bids").fetchone()[0]
+        self.assertEqual(bid_count, 0)
+
+    def test_ended_auction_rejects_a_bid(self):
+        self.add_logged_in_bidder()
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (int(time.time()) - 1, bidmart.DEMO_AUCTION_SLUG),
+            )
+        details = self.client.get(self.auction_url)
+        self.assertIn(b"This auction has ended", details.data)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "93000",
+        })
+        self.assertEqual(response.headers["Location"], self.auction_url)
+        self.assertIn(b"no longer accepting bids", self.client.get(self.auction_url).data)
 
 
 if __name__ == "__main__":

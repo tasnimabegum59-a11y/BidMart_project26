@@ -68,6 +68,9 @@
                 <!-- Flask Backend যুক্ত হলে action="/login" ব্যবহার হবে -->
                 <form action="/login" method="post" id="loginForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    {% if next_url %}
+                    <input type="hidden" name="next" value="{{ next_url }}">
+                    {% endif %}
 
                     <!-- Email Address -->
                     <label for="email">Email Address</label>

@@ -140,28 +140,106 @@
 
     <section class="promotional-cards" aria-label="Live auction and special discount">
         <div class="container promotional-grid">
-            <a
-                class="promotional-card"
-                href="#auctions"
-                aria-label="View the live iPhone 14 Pro Max auction"
-            >
-                <img
-                    src="{{ url_for('static', filename='live-auction-card.png') }}"
-                    alt="Live auction: iPhone 14 Pro Max, current bid 92,500 taka. Place your bid."
-                >
-            </a>
-            <a
-                class="promotional-card"
-                href="#products"
-                aria-label="Shop selected products with up to 40 percent off"
-            >
-                <img
-                    src="{{ url_for('static', filename='summer-savings-card.png') }}"
-                    alt="Special discount: up to 40 percent off selected products. Shop now."
-                >
-            </a>
+            <article class="promotional-card promotional-auction">
+                <div class="promo-auction-image">
+                    <span class="promo-live-badge" id="homeAuctionStatus">
+                        <span aria-hidden="true"></span> LIVE AUCTION
+                    </span>
+                    <img
+                        src="{{ url_for('static', filename='products/iphone-14-pro.png') }}"
+                        alt="Deep purple iPhone 14 Pro Max"
+                    >
+                </div>
+                <div class="promo-auction-details">
+                    <p class="promo-eyebrow">BIDMART FEATURED AUCTION</p>
+                    <h2>iPhone 14 Pro Max <span>(256GB)</span></h2>
+                    <p class="promo-product-meta">Apple <span>·</span> 256GB <span>·</span> Deep Purple</p>
+                    <div class="promo-countdown">
+                        <span class="promo-clock" aria-hidden="true">◷</span>
+                        <span class="promo-countdown-copy">
+                            <span>Time remaining</span>
+                            <strong
+                                id="homeAuctionCountdown"
+                                data-ends-at="{{ featured_auction.ends_at }}"
+                                data-now="{{ now }}"
+                                data-auction-ended="{{ 'true' if featured_auction.ends_at <= now else 'false' }}"
+                            >Calculating…</strong>
+                        </span>
+                    </div>
+                    <div class="promo-bid-prices">
+                        <span><small>Original price</small><del>৳ 1,25,000</del></span>
+                        <span><small>Current bid</small><strong>৳ {{ "{:,}".format(featured_auction.current_bid) }}</strong></span>
+                    </div>
+                    <a class="promo-auction-button" href="{{ url_for('auction_details') }}">
+                        <span aria-hidden="true">⚒</span> Place Your Bid
+                    </a>
+                </div>
+            </article>
+
+            <article class="promotional-card promotional-discount">
+                <div class="promo-discount-copy">
+                    <span class="promo-discount-badge">SPECIAL DISCOUNT</span>
+                    <p class="promo-discount-intro">Seasonal deals are here</p>
+                    <h2>Up to <strong>40% OFF</strong></h2>
+                    <p class="promo-discount-description">Save on selected audio and wearable products.</p>
+                    <a class="promo-shop-button" href="#products">Shop Now <span aria-hidden="true">→</span></a>
+                    <p class="promo-offer-note">Limited-time demo offer · prices shown below</p>
+                </div>
+                <div class="promo-discount-products" aria-label="Products in this offer">
+                    <a class="promo-deal-product" href="#products" aria-label="Shop JBL wireless headphones, 40 percent off">
+                        <img src="{{ url_for('static', filename='products/jbl-headphones.png') }}" alt="">
+                        <span>JBL Headphones</span>
+                        <strong>40% OFF</strong>
+                    </a>
+                    <a class="promo-deal-product" href="#products" aria-label="Shop smart watch, 25 percent off">
+                        <img src="{{ url_for('static', filename='products/smart-watch.png') }}" alt="">
+                        <span>Smart Watch</span>
+                        <strong>25% OFF</strong>
+                    </a>
+                    <a class="promo-deal-product" href="#products" aria-label="Shop wireless earbuds, 26 percent off">
+                        <img src="{{ url_for('static', filename='products/wireless-earbuds.svg') }}" alt="">
+                        <span>Earbuds</span>
+                        <strong>26% OFF</strong>
+                    </a>
+                </div>
+            </article>
         </div>
     </section>
+
+    <script>
+        const homeAuctionCountdown = document.getElementById("homeAuctionCountdown");
+        const homeAuctionEndTime = Number(homeAuctionCountdown.dataset.endsAt) * 1000;
+        const homeAuctionServerTime = Number(homeAuctionCountdown.dataset.now) * 1000;
+        const homeAuctionClockStartedAt = Date.now();
+
+        function updateHomeAuctionCountdown() {
+            const now = homeAuctionServerTime + (Date.now() - homeAuctionClockStartedAt);
+            const remaining = Math.max(0, Math.floor((homeAuctionEndTime - now) / 1000));
+            const days = Math.floor(remaining / 86400);
+            const hours = Math.floor((remaining % 86400) / 3600);
+            const minutes = Math.floor((remaining % 3600) / 60);
+            const seconds = remaining % 60;
+            const twoDigits = value => String(value).padStart(2, "0");
+
+            homeAuctionCountdown.textContent = days
+                ? `${days}d ${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}`
+                : `${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}`;
+
+            if (remaining === 0) {
+                homeAuctionCountdown.dataset.auctionEnded = "true";
+                homeAuctionCountdown.textContent = "Auction ended";
+                homeAuctionCountdown.closest(".promotional-auction").classList.add("is-ended");
+                const status = document.getElementById("homeAuctionStatus");
+                status.textContent = "AUCTION ENDED";
+                status.classList.add("is-ended");
+                const bidButton = document.querySelector(".promo-auction-button");
+                bidButton.textContent = "View Auction Results";
+            }
+        }
+
+        updateHomeAuctionCountdown();
+        window.setInterval(updateHomeAuctionCountdown, 1000);
+    </script>
 
     <!-- Products Section শুরু: কিছু উদাহরণ পণ্য দেখায় -->
     <section class="products section-padding" id="products"> <!-- id="products" দিয়ে menu link কাজ করে -->
@@ -354,7 +432,7 @@
                 <p class="tagline">BID AND WIN</p> <!-- Auction section-এর label -->
                 <h2>Join Exciting Auctions</h2> <!-- Auction section-এর শিরোনাম -->
                 <p>Discover auction products and compete with other bidders. The highest valid bid at the deadline wins.</p> <!-- Auction কীভাবে কাজ করে তা বোঝায় -->
-                <a href="#" class="primary-btn">View Auctions</a> <!-- Auction দেখার button; এখনো backend যুক্ত নেই -->
+                <a href="{{ url_for('auction_details') }}" class="primary-btn">Place Your Bid</a>
             </div> <!-- Auction text শেষ -->
 
             <div class="auction-icon">🔨</div> <!-- Auction বোঝানোর বড় প্রতীক -->

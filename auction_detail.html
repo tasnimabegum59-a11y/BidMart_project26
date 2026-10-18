@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Review the iPhone 14 Pro Max demo auction details, current bid, rules, and recent bids before bidding.">
+    <title>iPhone 14 Pro Max Auction | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body class="auction-detail-page">
+    <header class="header">
+        <div class="container auction-detail-navbar">
+            <a href="{{ url_for('home') }}" class="logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <nav class="auction-detail-nav" aria-label="Main navigation">
+                <a href="{{ url_for('home') }}">Home</a>
+                <a href="{{ url_for('home') }}#products">Products</a>
+                <a href="{{ url_for('auction_details') }}" aria-current="page">Auctions</a>
+            </nav>
+            {% if current_user_email %}
+            <span class="auction-detail-account">Hello, {{ current_user_name or current_user_email }}</span>
+            {% else %}
+            <a class="login-btn" href="{{ url_for('login_page') }}">Login</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="container auction-detail-content">
+        <nav class="auction-breadcrumb" aria-label="Breadcrumb">
+            <a href="{{ url_for('home') }}">Home</a>
+            <span aria-hidden="true">/</span>
+            <a href="{{ url_for('auction_details') }}">Auctions</a>
+            <span aria-hidden="true">/</span>
+            <span>iPhone 14 Pro Max</span>
+        </nav>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <section class="auction-detail-card" aria-labelledby="auctionTitle">
+            <div class="auction-detail-gallery">
+                <span class="auction-live-badge"><span aria-hidden="true"></span> DEMO AUCTION</span>
+                <img
+                    class="auction-detail-image"
+                    src="{{ url_for('static', filename='products/iphone-14-pro.png') }}"
+                    alt="Deep purple iPhone 14 Pro Max, 256GB"
+                >
+                <p class="auction-image-caption">Deep Purple · 256GB · Product image for this demo listing</p>
+            </div>
+
+            <div class="auction-detail-information">
+                <p class="auction-eyebrow">BIDMART FEATURED AUCTION</p>
+                <h1 id="auctionTitle">iPhone 14 Pro Max (256GB)</h1>
+                <p class="auction-product-meta">Apple <span>·</span> 256GB <span>·</span> Deep Purple</p>
+
+                <div class="auction-countdown" aria-live="polite">
+                    <span class="auction-clock" aria-hidden="true">◷</span>
+                    <div>
+                        <span class="auction-countdown-label">Time remaining</span>
+                        <strong id="auctionCountdown" data-ends-at="{{ auction.ends_at }}">Calculating…</strong>
+                    </div>
+                </div>
+
+                <div class="auction-bid-summary">
+                    <div>
+                        <span>Original price</span>
+                        <strong class="auction-original-price">৳ 1,25,000</strong>
+                    </div>
+                    <div>
+                        <span>Current highest bid</span>
+                        <strong class="auction-current-bid">৳ {{ "{:,}".format(auction.current_bid) }}</strong>
+                    </div>
+                    <div>
+                        <span>Next minimum bid</span>
+                        <strong>৳ {{ "{:,}".format(minimum_bid) }}</strong>
+                    </div>
+                </div>
+
+                <div class="auction-demo-notice">
+                    <strong>Demo auction</strong>
+                    <p>This is a sample BidMart auction for demonstration. Bids are recorded in this project, but no real payment, delivery, or product sale takes place.</p>
+                </div>
+
+                {% if current_user_email %}
+                    {% if auction.ends_at > now %}
+                    <form class="auction-bid-form" action="{{ url_for('place_bid') }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <label for="bidAmount">Your bid (৳)</label>
+                        <div class="auction-bid-input-row">
+                            <input
+                                id="bidAmount"
+                                name="bid_amount"
+                                type="number"
+                                min="{{ minimum_bid }}"
+                                step="{{ minimum_increment }}"
+                                inputmode="numeric"
+                                placeholder="Minimum ৳ {{ '{:,}'.format(minimum_bid) }}"
+                                required
+                            >
+                            <button type="submit" class="auction-place-bid">⚒ Place Your Bid</button>
+                        </div>
+                        <p>Bids must be at least ৳ {{ "{:,}".format(minimum_increment) }} higher than the current bid.</p>
+                    </form>
+                    {% else %}
+                    <div class="auction-ended-notice">This auction has ended and is no longer accepting bids.</div>
+                    {% endif %}
+                {% else %}
+                    <div class="auction-login-prompt">
+                        <p>Log in with your verified BidMart account to place a bid.</p>
+                        <a class="auction-place-bid" href="{{ url_for('login_page', next=url_for('auction_details')) }}">Login to Bid</a>
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <div class="auction-detail-lower-grid">
+            <section class="auction-information-panel" aria-labelledby="listingDetailsTitle">
+                <h2 id="listingDetailsTitle">Listing details</h2>
+                <dl class="auction-facts">
+                    <div><dt>Product</dt><dd>Apple iPhone 14 Pro Max</dd></div>
+                    <div><dt>Storage and color</dt><dd>256GB · Deep Purple</dd></div>
+                    <div><dt>Condition</dt><dd>Demo listing; actual condition not verified</dd></div>
+                    <div><dt>Seller</dt><dd>BidMart Demo Store</dd></div>
+                    <div><dt>Location</dt><dd>Dhaka, Bangladesh (demo)</dd></div>
+                    <div><dt>Delivery and returns</dt><dd>No real delivery or returns; this is a demo auction</dd></div>
+                </dl>
+            </section>
+
+            <section class="auction-information-panel" aria-labelledby="bidRulesTitle">
+                <h2 id="bidRulesTitle">Know before you bid</h2>
+                <ul class="auction-rules">
+                    <li>You must be logged in to a verified account to submit a bid.</li>
+                    <li>Your bid must meet or exceed the minimum bid shown above.</li>
+                    <li>Once submitted, a demo bid is recorded and cannot be withdrawn.</li>
+                    <li>The highest valid bid when the timer ends is shown as the leader.</li>
+                    <li>No real payment, purchase, shipment, or seller guarantee is involved.</li>
+                </ul>
+            </section>
+        </div>
+
+        <section class="auction-information-panel auction-history-panel" aria-labelledby="bidHistoryTitle">
+            <div class="auction-history-heading">
+                <div>
+                    <p class="auction-eyebrow">TRANSPARENT BIDDING</p>
+                    <h2 id="bidHistoryTitle">Recent bid history</h2>
+                </div>
+                <span>{{ recent_bids|length }} recent bid{% if recent_bids|length != 1 %}s{% endif %}</span>
+            </div>
+            {% if recent_bids %}
+            <div class="auction-history-table-wrap">
+                <table class="auction-history-table">
+                    <thead><tr><th scope="col">Bidder</th><th scope="col">Bid amount</th><th scope="col">Date and time</th></tr></thead>
+                    <tbody>
+                        {% for bid in recent_bids %}
+                        <tr>
+                            <td>{{ bid.bidder_label }}</td>
+                            <td>৳ {{ "{:,}".format(bid.amount) }}</td>
+                            <td><time datetime="{{ bid.created_at }}">{{ bid.created_at|datetime }}</time></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="auction-empty-history">No bids have been placed yet. Be the first to make a demo bid.</p>
+            {% endif %}
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+
+    <script>
+        const auctionCountdown = document.getElementById("auctionCountdown");
+        const auctionEndTime = Number(auctionCountdown.dataset.endsAt) * 1000;
+
+        function updateAuctionCountdown() {
+            const remaining = Math.max(0, Math.floor((auctionEndTime - Date.now()) / 1000));
+            const days = Math.floor(remaining / 86400);
+            const hours = Math.floor((remaining % 86400) / 3600);
+            const minutes = Math.floor((remaining % 3600) / 60);
+            const seconds = remaining % 60;
+            auctionCountdown.textContent = days
+                ? `${days}d ${hours}h ${minutes}m ${seconds}s`
+                : `${hours}h ${minutes}m ${seconds}s`;
+
+            if (remaining === 0) {
+                auctionCountdown.closest(".auction-countdown").classList.add("is-ended");
+                const bidForm = document.querySelector(".auction-bid-form");
+                if (bidForm) {
+                    bidForm.querySelectorAll("input, button").forEach((control) => {
+                        control.disabled = true;
+                    });
+                    const endedMessage = document.createElement("p");
+                    endedMessage.className = "auction-ended-notice";
+                    endedMessage.textContent = "This auction has ended and is no longer accepting bids.";
+                    bidForm.replaceWith(endedMessage);
+                }
+            }
+        }
+
+        updateAuctionCountdown();
+        window.setInterval(updateAuctionCountdown, 1000);
+    </script>
+</body>
+</html>
