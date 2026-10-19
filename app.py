@@ -97,6 +97,7 @@ AUCTION_LISTINGS = (
 )
 PRODUCT_CATALOG = (
     {
+        "slug": "iphone-14-pro-max-256gb",
         "name": "iPhone 14 Pro Max (256GB)",
         "category": "Smartphones",
         "description": "Powerful. Premium. Perfect.",
@@ -106,8 +107,10 @@ PRODUCT_CATALOG = (
         "reviews": "1.2k",
         "price": 92500,
         "old_price": 125000,
+        "features": ("A16 Bionic chip", "48MP Pro camera", "All-day battery"),
     },
     {
+        "slug": "smart-watch-bluetooth-calling",
         "name": "Smart Watch (Bluetooth Calling)",
         "category": "Wearables",
         "description": "Stay connected, stay fit.",
@@ -117,8 +120,10 @@ PRODUCT_CATALOG = (
         "reviews": "850",
         "price": 2999,
         "old_price": 4000,
+        "features": ("Bluetooth calling", "Heart rate monitor", "IP68 waterproof"),
     },
     {
+        "slug": "jbl-wireless-headphones",
         "name": "JBL Wireless Headphones",
         "category": "Audio",
         "description": "Feel the bass, feel the music.",
@@ -128,8 +133,10 @@ PRODUCT_CATALOG = (
         "reviews": "2.4k",
         "price": 2999,
         "old_price": 5000,
+        "features": ("Pure bass sound", "Up to 40 hours playtime", "Bluetooth 5.3"),
     },
     {
+        "slug": "casual-sneakers",
         "name": "Casual Sneakers",
         "category": "Fashion",
         "description": "Everyday comfort, fresh style.",
@@ -139,8 +146,10 @@ PRODUCT_CATALOG = (
         "reviews": "420",
         "price": 2000,
         "old_price": 2500,
+        "features": ("Lightweight design", "Breathable fabric", "Flexible sole"),
     },
     {
+        "slug": "wireless-earbuds",
         "name": "Wireless Earbuds",
         "category": "Audio",
         "description": "Clear sound, all day long.",
@@ -150,8 +159,10 @@ PRODUCT_CATALOG = (
         "reviews": "680",
         "price": 1850,
         "old_price": 2500,
+        "features": ("Noise reduction", "Touch controls", "Charging case included"),
     },
     {
+        "slug": "compact-digital-camera",
         "name": "Compact Digital Camera",
         "category": "Photography",
         "description": "Capture every moment in detail.",
@@ -161,8 +172,10 @@ PRODUCT_CATALOG = (
         "reviews": "315",
         "price": 18500,
         "old_price": 22000,
+        "features": ("4K video recording", "Optical image focus", "Rechargeable battery"),
     },
     {
+        "slug": "ideapad-slim-3-laptop",
         "name": "IdeaPad Slim 3 Laptop",
         "category": "Computers",
         "description": "A reliable laptop for work, study, and everyday use.",
@@ -172,8 +185,10 @@ PRODUCT_CATALOG = (
         "reviews": "96",
         "price": 72000,
         "old_price": None,
+        "features": ("Slim everyday design", "Built for work and study", "Reliable performance"),
     },
     {
+        "slug": "wireless-keyboard-mouse",
         "name": "Wireless Keyboard and Mouse",
         "category": "Accessories",
         "description": "A comfortable wireless set for your desk.",
@@ -183,8 +198,10 @@ PRODUCT_CATALOG = (
         "reviews": "73",
         "price": 3200,
         "old_price": None,
+        "features": ("Wireless connection", "Comfortable keyboard", "Matching mouse included"),
     },
     {
+        "slug": "ceramic-table-lamp",
         "name": "Ceramic Table Lamp",
         "category": "Home",
         "description": "A warm, simple accent for your home.",
@@ -194,6 +211,7 @@ PRODUCT_CATALOG = (
         "reviews": "51",
         "price": 2450,
         "old_price": None,
+        "features": ("Ceramic base", "Warm ambient lighting", "Simple home accent"),
     },
 )
 load_dotenv(ROOT / ".env")
@@ -469,6 +487,25 @@ def products_page():
     return render_template(
         "products.html",
         products=PRODUCT_CATALOG,
+        current_user_email=session.get("user_email"),
+        current_user_name=session.get("user_name"),
+        active_page="products",
+    )
+
+
+@app.get("/products/<slug>")
+def product_details_page(slug):
+    product = next((item for item in PRODUCT_CATALOG if item["slug"] == slug), None)
+    if not product:
+        abort(404)
+    related_products = [
+        item for item in PRODUCT_CATALOG
+        if item["slug"] != slug
+    ][:4]
+    return render_template(
+        "product_detail.html",
+        product=product,
+        related_products=related_products,
         current_user_email=session.get("user_email"),
         current_user_name=session.get("user_name"),
         active_page="products",

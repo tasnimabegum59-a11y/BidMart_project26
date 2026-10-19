@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{ product.name }} product information, price, features, seller details, and reviews on BidMart.">
+    <title>{{ product.name }} | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% include "site_header.html" %}
+
+    <main class="product-detail-page">
+        <div class="container">
+            <nav class="product-detail-breadcrumb" aria-label="Breadcrumb">
+                <a href="{{ url_for('home') }}">Home</a>
+                <span aria-hidden="true">/</span>
+                <a href="{{ url_for('products_page') }}">Products</a>
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">{{ product.name }}</span>
+            </nav>
+
+            <section class="product-detail-card" aria-labelledby="productTitle">
+                <div class="product-detail-gallery">
+                    <div class="product-detail-thumbnails" aria-label="Product images">
+                        <button class="product-detail-thumbnail is-selected" type="button" aria-label="View product image">
+                            {% if product.image %}
+                            <img src="{{ url_for('static', filename=product.image) }}" alt="">
+                            {% else %}
+                            <span aria-hidden="true">{{ product.icon }}</span>
+                            {% endif %}
+                        </button>
+                        <button class="product-detail-thumbnail" type="button" aria-label="View product image">
+                            {% if product.image %}
+                            <img src="{{ url_for('static', filename=product.image) }}" alt="">
+                            {% else %}
+                            <span aria-hidden="true">{{ product.icon }}</span>
+                            {% endif %}
+                        </button>
+                        <button class="product-detail-thumbnail" type="button" aria-label="View product image">
+                            {% if product.image %}
+                            <img src="{{ url_for('static', filename=product.image) }}" alt="">
+                            {% else %}
+                            <span aria-hidden="true">{{ product.icon }}</span>
+                            {% endif %}
+                        </button>
+                    </div>
+                    <div class="product-detail-main-image">
+                        {% if product.image %}
+                        <img id="productMainImage" src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
+                        {% else %}
+                        <span id="productMainIcon" aria-hidden="true">{{ product.icon }}</span>
+                        {% endif %}
+                        {% if product.old_price %}
+                        <span class="product-detail-discount">
+                            {{ (((product.old_price - product.price) / product.old_price) * 100)|round|int }}% OFF
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="product-detail-information">
+                    <p class="category">{{ product.category }}</p>
+                    <h1 id="productTitle">{{ product.name }}</h1>
+                    <a class="product-detail-rating" href="#reviews" aria-label="Rated {{ product.rating }} out of 5, {{ product.reviews }} sample reviews">
+                        <span aria-hidden="true">★★★★★</span>
+                        <strong>{{ product.rating }}</strong>
+                        <span>({{ product.reviews }} sample reviews)</span>
+                    </a>
+
+                    <div class="product-detail-price">
+                        <strong>৳ {{ "{:,}".format(product.price) }}</strong>
+                        {% if product.old_price %}
+                        <del>৳ {{ "{:,}".format(product.old_price) }}</del>
+                        <span>
+                            You save ৳ {{ "{:,}".format(product.old_price - product.price) }}
+                        </span>
+                        {% else %}
+                        <span class="product-regular-price">Regular price</span>
+                        {% endif %}
+                    </div>
+
+                    <p class="product-detail-description">{{ product.description }}</p>
+
+                    <div class="product-detail-stock">
+                        <span aria-hidden="true">✓</span>
+                        Sample listing · Availability not verified
+                    </div>
+
+                    <div class="product-detail-quantity">
+                        <label for="productQuantity">Quantity</label>
+                        <input id="productQuantity" type="number" min="1" value="1" inputmode="numeric">
+                    </div>
+
+                    <button class="product-detail-buy" id="productBuyNow" type="button">Buy Now</button>
+                    <p class="product-detail-purchase-note" id="productPurchaseNotice" role="status" hidden>
+                        This is a demo listing. Purchases are not available yet.
+                    </p>
+
+                    <ul class="product-detail-highlights" aria-label="Product highlights">
+                        {% for feature in product.features %}
+                        <li>{{ feature }}</li>
+                        {% endfor %}
+                    </ul>
+                    <p class="product-detail-sku">Listing ID: BM-{{ product.slug|upper }}</p>
+                </div>
+            </section>
+
+            <section class="product-detail-lower">
+                <div class="product-detail-tabs" aria-label="Product information sections">
+                    <a href="#description" aria-current="page">Description</a>
+                    <a href="#seller">Seller information</a>
+                    <a href="#reviews">Reviews</a>
+                </div>
+
+                <section class="product-detail-panel" id="description" aria-labelledby="descriptionTitle">
+                    <h2 id="descriptionTitle">Product description</h2>
+                    <p>{{ product.description }} This demo listing includes the product highlights above to help you review its main features.</p>
+                    <h3>Key features</h3>
+                    <ul class="product-detail-feature-list">
+                        {% for feature in product.features %}
+                        <li>{{ feature }}</li>
+                        {% endfor %}
+                    </ul>
+                    <p class="product-detail-demo-note">Product details and availability are sample information for this project demonstration.</p>
+                </section>
+
+                <section class="product-detail-panel product-detail-seller" id="seller" aria-labelledby="sellerTitle">
+                    <div class="product-detail-seller-avatar" aria-hidden="true">B</div>
+                    <div>
+                        <p class="product-detail-eyebrow">SELLER INFORMATION</p>
+                        <h2 id="sellerTitle">BidMart Demo Store</h2>
+                        <p>Sample seller profile · Seller information has not been verified.</p>
+                    </div>
+                    <span class="product-detail-seller-badge">Demo seller</span>
+                </section>
+
+                <section class="product-detail-panel product-detail-reviews" id="reviews" aria-labelledby="reviewsTitle">
+                    <div class="product-detail-review-summary">
+                        <p class="product-detail-eyebrow">CUSTOMER FEEDBACK</p>
+                        <h2 id="reviewsTitle">Sample rating overview</h2>
+                        <div class="product-detail-review-score">
+                            <strong>{{ product.rating }}</strong>
+                            <span><span aria-hidden="true">★★★★★</span><br>{{ product.reviews }} sample reviews</span>
+                        </div>
+                        <p>Ratings shown here are sample project data, not verified customer submissions.</p>
+                    </div>
+                    <div class="product-detail-review-bars" aria-label="Sample rating distribution">
+                        {% for stars, width in [(5, 72), (4, 18), (3, 7), (2, 2), (1, 1)] %}
+                        <div>
+                            <span>{{ stars }} star</span>
+                            <span class="product-detail-review-track"><span style="width: {{ width }}%"></span></span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+            </section>
+
+            <section class="related-products" aria-labelledby="relatedProductsTitle">
+                <div class="related-products-heading">
+                    <div>
+                        <p class="product-detail-eyebrow">KEEP EXPLORING</p>
+                        <h2 id="relatedProductsTitle">Related Products</h2>
+                    </div>
+                    <a href="{{ url_for('products_page') }}">View all products <span aria-hidden="true">→</span></a>
+                </div>
+                <div class="related-products-grid">
+                    {% for related in related_products %}
+                    <a class="related-product-card" href="{{ url_for('product_details_page', slug=related.slug) }}">
+                        <span class="related-product-image">
+                            {% if related.image %}
+                            <img src="{{ url_for('static', filename=related.image) }}" alt="">
+                            {% else %}
+                            <span aria-hidden="true">{{ related.icon }}</span>
+                            {% endif %}
+                        </span>
+                        <span class="category">{{ related.category }}</span>
+                        <strong>{{ related.name }}</strong>
+                        <span class="related-product-price">৳ {{ "{:,}".format(related.price) }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+
+    <script>
+        const productBuyNow = document.getElementById("productBuyNow");
+        const productPurchaseNotice = document.getElementById("productPurchaseNotice");
+
+        productBuyNow.addEventListener("click", function() {
+            productPurchaseNotice.hidden = false;
+        });
+
+        const productMainImage = document.getElementById("productMainImage");
+        const productMainIcon = document.getElementById("productMainIcon");
+
+        document.querySelectorAll(".product-detail-thumbnail").forEach(function(thumbnail) {
+            thumbnail.addEventListener("click", function() {
+                document.querySelectorAll(".product-detail-thumbnail").forEach(function(item) {
+                    item.classList.remove("is-selected");
+                });
+                thumbnail.classList.add("is-selected");
+
+                const thumbnailImage = thumbnail.querySelector("img");
+                if (thumbnailImage && productMainImage) {
+                    productMainImage.src = thumbnailImage.src;
+                } else if (productMainIcon) {
+                    productMainIcon.textContent = thumbnail.textContent.trim();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

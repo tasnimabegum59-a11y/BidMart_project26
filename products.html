@@ -49,24 +49,14 @@
                             {% endif %}
                             <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
                             <div class="product-actions">
-                                <button
+                                <a
                                     class="product-btn product-details-btn"
-                                    type="button"
-                                    aria-controls="product-details-{{ loop.index }}"
-                                    aria-expanded="false"
-                                    data-product-details
-                                >
-                                    ⓘ Know Details
-                                </button>
+                                    href="{{ url_for('product_details_page', slug=product.slug) }}"
+                                >ⓘ Know Details</a>
                                 <button class="product-btn product-buy-btn" type="button" data-buy-now>
                                     🛒 Buy Now
                                 </button>
                             </div>
-                        </div>
-                        <div class="catalog-product-details" id="product-details-{{ loop.index }}" hidden>
-                            <p><strong>Category:</strong> {{ product.category }}</p>
-                            <p><strong>Rating:</strong> {{ product.rating }} / 5 from {{ product.reviews }} reviews</p>
-                            <p><strong>About:</strong> {{ product.description }}</p>
                         </div>
                         <p class="catalog-purchase-notice" role="status" hidden>
                             This is a demo listing. Purchases are not available yet.
@@ -89,16 +79,8 @@
     </footer>
     <script>
         document.querySelectorAll(".catalog-grid .product-card").forEach(function(card) {
-            const detailsButton = card.querySelector("[data-product-details]");
-            const details = card.querySelector(".catalog-product-details");
             const buyButton = card.querySelector("[data-buy-now]");
             const purchaseNotice = card.querySelector(".catalog-purchase-notice");
-
-            detailsButton.addEventListener("click", function() {
-                const isExpanded = detailsButton.getAttribute("aria-expanded") === "true";
-                details.hidden = isExpanded;
-                detailsButton.setAttribute("aria-expanded", String(!isExpanded));
-            });
 
             buyButton.addEventListener("click", function() {
                 purchaseNotice.hidden = false;

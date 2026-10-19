@@ -106,6 +106,12 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertEqual(home.data.count(b'class="product-card"'), 6)
+        self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
+        for product in bidmart.PRODUCT_CATALOG[:6]:
+            self.assertIn(
+                f'href="/products/{product["slug"]}" class="product-btn product-details-btn"'.encode(),
+                home.data,
+            )
         for product_name in (
             b"iPhone 14 Pro Max",
             b"Smart Watch",
@@ -166,7 +172,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"26% OFF", response.data)
         self.assertEqual(response.data.count(b"REGULAR PRICE"), 3)
         self.assertEqual(
-            len(re.findall(rb"data-product-details\s*>", response.data)),
+            response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
         )
         self.assertEqual(
@@ -177,6 +183,24 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
+
+    def test_product_details_pages_show_complete_demo_listing_information(self):
+        for product in bidmart.PRODUCT_CATALOG:
+            with self.subTest(slug=product["slug"]):
+                response = self.client.get(f"/products/{product['slug']}")
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(product["name"].encode(), response.data)
+                self.assertIn(b"Product description", response.data)
+                self.assertIn(b"Seller information", response.data)
+                self.assertIn(b"Sample rating overview", response.data)
+                self.assertIn(b"Related Products", response.data)
+                self.assertIn(b"Availability not verified", response.data)
+                self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
+
+    def test_unknown_product_detail_returns_not_found(self):
+        response = self.client.get("/products/not-a-product")
+
+        self.assertEqual(response.status_code, 404)
 
     def test_logged_in_navigation_header_is_shared_across_main_pages(self):
         with bidmart.database() as connection:
