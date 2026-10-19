@@ -53,14 +53,16 @@
                                     class="product-btn product-details-btn"
                                     href="{{ url_for('product_details_page', slug=product.slug) }}"
                                 >ⓘ Know Details</a>
-                                <button class="product-btn product-buy-btn" type="button" data-buy-now>
-                                    🛒 Buy Now
-                                </button>
+                                <form method="post" action="{{ url_for('start_checkout') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <input type="hidden" name="product_slug" value="{{ product.slug }}">
+                                    <input type="hidden" name="quantity" value="1">
+                                    <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product.stock < 1 %}disabled{% endif %}>
+                                        {% if product.stock %}🛒 Buy Now{% else %}Out of stock{% endif %}
+                                    </button>
+                                </form>
                             </div>
                         </div>
-                        <p class="catalog-purchase-notice" role="status" hidden>
-                            This is a demo listing. Purchases are not available yet.
-                        </p>
                     </article>
                     {% endfor %}
                 </div>
@@ -77,15 +79,5 @@
             <p>North East University Bangladesh</p>
         </div>
     </footer>
-    <script>
-        document.querySelectorAll(".catalog-grid .product-card").forEach(function(card) {
-            const buyButton = card.querySelector("[data-buy-now]");
-            const purchaseNotice = card.querySelector(".catalog-purchase-notice");
-
-            buyButton.addEventListener("click", function() {
-                purchaseNotice.hidden = false;
-            });
-        });
-    </script>
 </body>
 </html>

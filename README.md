@@ -41,3 +41,9 @@ C:/Users/DESKTOP/AppData/Local/Programs/Python/Python312/python.exe -m unittest 
 Tests use a temporary SQLite database and mock the SMTP send operation. Only regular user sign-up is enabled; admin and superadmin creation remains rejected through public registration and must be provisioned by an authorized owner.
 
 Before deployment, use HTTPS, set `APP_BASE_URL` to the HTTPS site, set `COOKIE_SECURE=true`, use a production WSGI server, and configure rate limits for registration and verification resend endpoints.
+
+## Product checkout
+
+Buy Now on the home page, product catalog, or product detail page starts a single-product checkout. Guests can place orders without an account; signed-in buyers have their saved name, email, and mobile prefilled. Current catalog products use a standard (non-configurable) variant and start with 10 demo stock units. The server validates product, quantity, shipping details, inventory, coupon, and price before saving an order.
+
+Delivery is ৳60 for Dhaka and ৳120 for the other listed divisions. The demo coupon `SAVE50` deducts ৳50 from orders of at least ৳500. COD orders are confirmed with payment status `unpaid`; online selections create pending, unpaid order records. No bKash, Nagad, or card gateway is configured, so online selections do not charge the buyer or mark an order paid. Configure and verify a real payment provider callback before enabling actual online payments.

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="View your BidMart order confirmation and payment status.">
+    <title>{% if tracking %}Track order{% else %}Order confirmed{% endif %} | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% include "site_header.html" %}
+    <main class="order-page">
+        <div class="container">
+            <section class="order-confirmation-card">
+                <div class="order-success-mark" aria-hidden="true">{% if order.order_status == "confirmed" %}✓{% else %}…{% endif %}</div>
+                {% if tracking %}
+                <p class="product-detail-eyebrow">ORDER TRACKING</p>
+                <h1>Order status: {{ order.order_status|title }}</h1>
+                {% elif order.order_status == "confirmed" %}
+                <p class="product-detail-eyebrow">THANK YOU</p>
+                <h1>Your order is confirmed</h1>
+                {% else %}
+                <p class="product-detail-eyebrow">ORDER RECEIVED</p>
+                <h1>Your order is awaiting payment</h1>
+                {% endif %}
+                <p class="order-number">Order ID <strong>{{ order.order_number }}</strong></p>
+                {% if order.payment_method != "cod" %}
+                <p class="order-payment-notice">
+                    Online payment gateway is not configured. No payment has been taken and this order remains Pending / Unpaid. Do not send money separately.
+                </p>
+                {% else %}
+                <p class="order-confirmation-message">Your order was placed successfully. Payment is due when the delivery arrives.</p>
+                {% endif %}
+
+                <div class="order-status-grid">
+                    <div><span>Order status</span><strong>{{ order.order_status|title }}</strong></div>
+                    <div><span>Payment status</span><strong>{{ order.payment_status|title }}</strong></div>
+                    <div><span>Payment method</span><strong>{{ {"cod": "Cash on Delivery", "bkash": "bKash", "nagad": "Nagad", "card": "Card / online"}[order.payment_method] }}</strong></div>
+                    <div><span>Estimated delivery</span><strong>To be confirmed after dispatch</strong></div>
+                </div>
+
+                <section class="order-detail-section">
+                    <h2>Ordered products</h2>
+                    {% for item in items %}
+                    <div class="order-line-item">
+                        <div>
+                            <strong>{{ item.product_name }}</strong>
+                            <span>Standard variant · Qty {{ item.quantity }} · ৳ {{ "{:,}".format(item.unit_price) }} each</span>
+                        </div>
+                        <strong>৳ {{ "{:,}".format(item.unit_price * item.quantity) }}</strong>
+                    </div>
+                    {% endfor %}
+                    <div class="order-total-line"><span>Product subtotal</span><strong>৳ {{ "{:,}".format(order.subtotal) }}</strong></div>
+                    <div class="order-total-line"><span>Delivery charge</span><strong>৳ {{ "{:,}".format(order.delivery_fee) }}</strong></div>
+                    {% if order.coupon_code %}
+                    <div class="order-total-line"><span>Discount ({{ order.coupon_code }})</span><strong>−৳ {{ "{:,}".format(order.discount) }}</strong></div>
+                    {% endif %}
+                    <div class="order-total-line order-grand-total"><span>Total payable</span><strong>৳ {{ "{:,}".format(order.total) }}</strong></div>
+                </section>
+
+                <section class="order-detail-section">
+                    <h2>Delivery address</h2>
+                    <p>{{ order.customer_name }} · {{ order.customer_phone }}</p>
+                    {% if order.customer_email %}<p>{{ order.customer_email }}</p>{% endif %}
+                    <p>{{ order.address }}, {{ order.district }}, {{ order.division }}{% if order.postal_code %} {{ order.postal_code }}{% endif %}</p>
+                    {% if order.delivery_note %}<p>Delivery note: {{ order.delivery_note }}</p>{% endif %}
+                </section>
+
+                <div class="order-actions">
+                    {% if not tracking %}<a class="checkout-submit" href="{{ track_url }}">Track order</a>{% endif %}
+                    <a class="order-continue-link" href="{{ url_for('products_page') }}">Continue shopping</a>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>

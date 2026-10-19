@@ -174,7 +174,12 @@
                         <p class="price">৳ 92,500</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='iphone-14-pro-max-256gb') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="iphone-14-pro-max-256gb">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('iphone-14-pro-max-256gb', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('iphone-14-pro-max-256gb', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -202,7 +207,12 @@
                         <p class="price">৳ 2,999</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='smart-watch-bluetooth-calling') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="smart-watch-bluetooth-calling">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('smart-watch-bluetooth-calling', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('smart-watch-bluetooth-calling', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -230,7 +240,12 @@
                         <p class="price">৳ 2,999</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='jbl-wireless-headphones') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="jbl-wireless-headphones">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('jbl-wireless-headphones', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('jbl-wireless-headphones', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -258,7 +273,12 @@
                         <p class="price">৳ 2,000</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='casual-sneakers') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="casual-sneakers">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('casual-sneakers', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('casual-sneakers', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -286,7 +306,12 @@
                         <p class="price">৳ 1,850</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='wireless-earbuds') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="wireless-earbuds">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('wireless-earbuds', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('wireless-earbuds', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -314,7 +339,12 @@
                         <p class="price">৳ 18,500</p>
                         <div class="product-actions">
                             <a href="{{ url_for('product_details_page', slug='compact-digital-camera') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <a href="#products" class="product-btn product-buy-btn">🛒 Buy Now</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="compact-digital-camera">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('compact-digital-camera', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('compact-digital-camera', 0) > 0 %}🛒 Buy Now{% else %}Out of stock{% endif %}</button>
+                            </form>
                         </div>
                     </div>
                 </article>

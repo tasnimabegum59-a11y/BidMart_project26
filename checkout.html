@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Review your BidMart order, enter delivery details, and choose a payment method.">
+    <title>Checkout | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% include "site_header.html" %}
+
+    <main class="checkout-page">
+        <div class="container">
+            <nav class="checkout-breadcrumb" aria-label="Breadcrumb">
+                <a href="{{ url_for('products_page') }}">Products</a>
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">Checkout</span>
+            </nav>
+            <header class="checkout-heading">
+                <p class="product-detail-eyebrow">SECURE CHECKOUT</p>
+                <h1>Delivery and payment</h1>
+                <p>Review your order and enter the details for delivery. You can checkout as a guest.</p>
+            </header>
+
+            <div class="checkout-layout">
+                <form class="checkout-form" id="checkoutOrderForm" method="post" action="{{ url_for('checkout_page') }}" novalidate>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <section class="checkout-section" aria-labelledby="contactHeading">
+                        <div class="checkout-section-heading">
+                            <span>1</span>
+                            <div>
+                                <h2 id="contactHeading">Contact information</h2>
+                                <p>Login is optional. Guest checkout is available.</p>
+                            </div>
+                        </div>
+                        {% if not current_user_email %}
+                        <div class="checkout-account-links">
+                            <a href="{{ url_for('login_page', next='/checkout') }}">Login</a>
+                            <a href="{{ url_for('registration_page') }}">Create account</a>
+                            <span>or continue as guest</span>
+                        </div>
+                        {% endif %}
+                        <div class="checkout-fields">
+                            <div class="checkout-field">
+                                <label for="customerName">Full name <span>*</span></label>
+                                <input id="customerName" name="customer_name" autocomplete="name" value="{{ values.customer_name }}" required aria-invalid="{{ 'true' if errors.customer_name else 'false' }}" {% if errors.customer_name %}aria-describedby="customerNameError"{% endif %}>
+                                {% if errors.customer_name %}<small class="checkout-field-error" id="customerNameError">{{ errors.customer_name }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field">
+                                <label for="customerPhone">Mobile number <span>*</span></label>
+                                <input id="customerPhone" name="customer_phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="01XXXXXXXXX" value="{{ values.customer_phone }}" required aria-invalid="{{ 'true' if errors.customer_phone else 'false' }}" {% if errors.customer_phone %}aria-describedby="customerPhoneError"{% endif %}>
+                                {% if errors.customer_phone %}<small class="checkout-field-error" id="customerPhoneError">{{ errors.customer_phone }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field">
+                                <label for="customerEmail">Email <span class="checkout-optional">(optional)</span></label>
+                                <input id="customerEmail" name="customer_email" type="email" autocomplete="email" value="{{ values.customer_email }}" aria-invalid="{{ 'true' if errors.customer_email else 'false' }}" {% if errors.customer_email %}aria-describedby="customerEmailError"{% endif %}>
+                                {% if errors.customer_email %}<small class="checkout-field-error" id="customerEmailError">{{ errors.customer_email }}</small>{% endif %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="checkout-section" aria-labelledby="addressHeading">
+                        <div class="checkout-section-heading">
+                            <span>2</span>
+                            <div>
+                                <h2 id="addressHeading">Shipping address</h2>
+                                <p>Delivery fee is based on your selected division.</p>
+                            </div>
+                        </div>
+                        <div class="checkout-fields">
+                            <div class="checkout-field">
+                                <label for="division">Division / city <span>*</span></label>
+                                <select id="division" name="division" required aria-invalid="{{ 'true' if errors.division else 'false' }}" {% if errors.division %}aria-describedby="divisionError"{% endif %}>
+                                    <option value="">Choose a division</option>
+                                    {% for division_name, fee in delivery_fees.items() %}
+                                    <option value="{{ division_name }}" data-fee="{{ fee }}" {% if values.division == division_name %}selected{% endif %}>{{ division_name }}{% if division_name == "Dhaka" %} — ৳ {{ fee }} delivery{% else %} — ৳ {{ fee }} delivery{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                                {% if errors.division %}<small class="checkout-field-error" id="divisionError">{{ errors.division }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field">
+                                <label for="district">Area / district <span>*</span></label>
+                                <input id="district" name="district" autocomplete="address-level2" value="{{ values.district }}" required aria-invalid="{{ 'true' if errors.district else 'false' }}" {% if errors.district %}aria-describedby="districtError"{% endif %}>
+                                {% if errors.district %}<small class="checkout-field-error" id="districtError">{{ errors.district }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field checkout-field-wide">
+                                <label for="address">Full address <span>*</span></label>
+                                <textarea id="address" name="address" autocomplete="street-address" rows="3" required aria-invalid="{{ 'true' if errors.address else 'false' }}" {% if errors.address %}aria-describedby="addressError"{% endif %}>{{ values.address }}</textarea>
+                                {% if errors.address %}<small class="checkout-field-error" id="addressError">{{ errors.address }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field">
+                                <label for="postalCode">Postal code <span class="checkout-optional">(optional)</span></label>
+                                <input id="postalCode" name="postal_code" inputmode="numeric" autocomplete="postal-code" maxlength="4" value="{{ values.postal_code }}" aria-invalid="{{ 'true' if errors.postal_code else 'false' }}" {% if errors.postal_code %}aria-describedby="postalCodeError"{% endif %}>
+                                {% if errors.postal_code %}<small class="checkout-field-error" id="postalCodeError">{{ errors.postal_code }}</small>{% endif %}
+                            </div>
+                            <div class="checkout-field">
+                                <label for="deliveryNote">Delivery note <span class="checkout-optional">(optional)</span></label>
+                                <input id="deliveryNote" name="delivery_note" value="{{ values.delivery_note }}" maxlength="500">
+                                {% if errors.delivery_note %}<small class="checkout-field-error">{{ errors.delivery_note }}</small>{% endif %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="checkout-section" aria-labelledby="paymentHeading">
+                        <div class="checkout-section-heading">
+                            <span>3</span>
+                            <div>
+                                <h2 id="paymentHeading">Payment method</h2>
+                                <p>Order and payment status are tracked separately.</p>
+                            </div>
+                        </div>
+                        {% if errors.payment_method %}<p class="checkout-field-error" role="alert">{{ errors.payment_method }}</p>{% endif %}
+                        <div class="checkout-payment-options">
+                            <label class="checkout-payment-option">
+                                <input type="radio" name="payment_method" value="cod" {% if values.payment_method == "cod" %}checked{% endif %}>
+                                <span><strong>Cash on Delivery</strong><small>Pay when your order arrives · Recommended</small></span>
+                            </label>
+                            <label class="checkout-payment-option">
+                                <input type="radio" name="payment_method" value="bkash" {% if values.payment_method == "bkash" %}checked{% endif %}>
+                                <span><strong>Mobile banking — bKash</strong><small>Gateway setup required · no charge will be made</small></span>
+                            </label>
+                            <label class="checkout-payment-option">
+                                <input type="radio" name="payment_method" value="nagad" {% if values.payment_method == "nagad" %}checked{% endif %}>
+                                <span><strong>Mobile banking — Nagad</strong><small>Gateway setup required · no charge will be made</small></span>
+                            </label>
+                            <label class="checkout-payment-option">
+                                <input type="radio" name="payment_method" value="card" {% if values.payment_method == "card" %}checked{% endif %}>
+                                <span><strong>Card / online payment</strong><small>Gateway setup required · no charge will be made</small></span>
+                            </label>
+                        </div>
+                        <p class="checkout-gateway-note" id="gatewayNotice">
+                            Online payment is not connected yet. Selecting an online method creates a pending, unpaid order only; no payment is taken or marked paid.
+                        </p>
+                    </section>
+
+                    <div class="checkout-submit-area">
+                        {% if errors.quantity %}<p class="checkout-field-error" role="alert">{{ errors.quantity }}</p>{% endif %}
+                        {% if errors.coupon_code %}<p class="checkout-field-error" role="alert">{{ errors.coupon_code }}</p>{% endif %}
+                        <button class="checkout-submit" id="checkoutSubmit" type="submit" {% if stock < 1 %}disabled{% endif %}>Place COD order</button>
+                        {% if stock < 1 %}<p class="checkout-field-error" role="alert">This product is out of stock. Please choose another product.</p>{% endif %}
+                    </div>
+                </form>
+
+                <aside class="checkout-summary" aria-labelledby="summaryHeading">
+                    <h2 id="summaryHeading">Order summary</h2>
+                    <div class="checkout-product">
+                        <div class="checkout-product-image">
+                            {% if product.image %}
+                            <img src="{{ url_for('static', filename=product.image) }}" alt="">
+                            {% else %}
+                            <span aria-hidden="true">{{ product.icon }}</span>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <strong>{{ product.name }}</strong>
+                            <span>Standard variant · Qty <span id="summaryQuantity">{{ values.quantity }}</span></span>
+                            <b>৳ {{ "{:,}".format(product.price) }} each</b>
+                        </div>
+                    </div>
+                    <div class="checkout-quantity-control">
+                        <label for="checkoutQuantity">Quantity</label>
+                        <input id="checkoutQuantity" name="quantity" form="checkoutOrderForm" type="number" min="1" max="{{ stock if stock > 0 else 1 }}" value="{{ values.quantity }}" required aria-invalid="{{ 'true' if errors.quantity else 'false' }}">
+                    </div>
+                    {% if errors.quantity %}<small class="checkout-field-error">{{ errors.quantity }}</small>{% endif %}
+                    <div class="checkout-summary-lines">
+                        <div><span>Product subtotal</span><strong id="summarySubtotal">৳ {{ "{:,}".format(totals.subtotal) }}</strong></div>
+                        <div><span>Delivery charge</span><strong id="summaryDelivery">৳ {{ "{:,}".format(totals.delivery_fee) }}</strong></div>
+                        <div><span>Discount</span><strong id="summaryDiscount">−৳ {{ "{:,}".format(totals.discount) }}</strong></div>
+                        <div class="checkout-coupon">
+                            <label for="couponCode">Coupon code</label>
+                            <div>
+                                <input id="couponCode" name="coupon_code" form="checkoutOrderForm" value="{{ values.coupon_code }}" autocomplete="off" placeholder="e.g. SAVE50">
+                                <button id="applyCoupon" type="button">Apply</button>
+                            </div>
+                            <p id="couponMessage" role="status" aria-live="polite">{% if values.coupon_code and totals.discount %}Coupon applied.{% endif %}</p>
+                        </div>
+                        <div class="checkout-total"><span>Total payable</span><strong id="summaryTotal">৳ {{ "{:,}".format(totals.total) }}</strong></div>
+                    </div>
+                    <p class="checkout-stock-note">
+                        {% if stock > 0 %}{{ stock }} item(s) currently available.{% else %}Currently out of stock.{% endif %}
+                    </p>
+                    <a class="checkout-edit-link" href="{{ url_for('product_details_page', slug=product.slug) }}">Edit product or quantity</a>
+                    <p class="checkout-demo-note">Delivery fees: Dhaka ৳60; other listed divisions ৳120. Coupon SAVE50 saves ৳50 on orders of ৳500 or more. All totals are recalculated on the server.</p>
+                </aside>
+            </div>
+        </div>
+    </main>
+
+    <form id="checkoutCouponForm" method="post" action="{{ url_for('apply_checkout_coupon') }}" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    </form>
+
+    <script>
+        const couponButton = document.getElementById("applyCoupon");
+        const couponInput = document.getElementById("couponCode");
+        const couponMessage = document.getElementById("couponMessage");
+        const checkoutForm = document.querySelector(".checkout-form");
+        const checkoutSubmit = document.getElementById("checkoutSubmit");
+        const divisionSelect = document.getElementById("division");
+        let appliedDiscount = {{ totals.discount }};
+        const checkoutQuantity = document.getElementById("checkoutQuantity");
+
+        function updateCheckoutTotal() {
+            const quantity = Number(checkoutQuantity.value);
+            const subtotal = {{ product.price }} * (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+            const selectedDivision = divisionSelect.options[divisionSelect.selectedIndex];
+            const delivery = Number(selectedDivision ? selectedDivision.dataset.fee : 0);
+            document.getElementById("summaryQuantity").textContent = String(quantity);
+            document.getElementById("summarySubtotal").textContent = "৳ " + subtotal.toLocaleString("en-US");
+            document.getElementById("summaryDelivery").textContent = "৳ " + delivery.toLocaleString("en-US");
+            document.getElementById("summaryTotal").textContent = "৳ " + Math.max(0, subtotal + delivery - appliedDiscount).toLocaleString("en-US");
+        }
+
+        couponButton.addEventListener("click", async function() {
+            couponButton.disabled = true;
+            couponMessage.className = "";
+            couponMessage.textContent = "Checking coupon…";
+            const data = new URLSearchParams(new FormData(document.getElementById("checkoutCouponForm")));
+            data.set("coupon_code", couponInput.value);
+            data.set("division", divisionSelect.value);
+            data.set("quantity", checkoutQuantity.value);
+            try {
+                const response = await fetch(document.getElementById("checkoutCouponForm").action, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                    body: data
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    appliedDiscount = 0;
+                    document.getElementById("summaryDiscount").textContent = "−৳ 0";
+                    couponMessage.className = "is-error";
+                    couponMessage.textContent = result.error || "Coupon could not be applied.";
+                    updateCheckoutTotal();
+                    return;
+                }
+                appliedDiscount = result.discount;
+                document.getElementById("summarySubtotal").textContent = "৳ " + result.subtotal.toLocaleString("en-US");
+                document.getElementById("summaryDelivery").textContent = "৳ " + result.delivery_fee.toLocaleString("en-US");
+                document.getElementById("summaryDiscount").textContent = "−৳ " + result.discount.toLocaleString("en-US");
+                document.getElementById("summaryTotal").textContent = "৳ " + result.total.toLocaleString("en-US");
+                couponMessage.className = "is-success";
+                couponMessage.textContent = result.message;
+            } catch (error) {
+                couponMessage.className = "is-error";
+                couponMessage.textContent = "Could not validate the coupon. Please try again.";
+            } finally {
+                couponButton.disabled = false;
+            }
+        });
+
+        divisionSelect.addEventListener("change", updateCheckoutTotal);
+        checkoutQuantity.addEventListener("input", updateCheckoutTotal);
+        checkoutForm.querySelectorAll('input[name="payment_method"]').forEach(function(method) {
+            method.addEventListener("change", function() {
+                checkoutSubmit.textContent = method.value === "cod"
+                    ? "Place COD order"
+                    : "Create unpaid online order";
+            });
+        });
+        const selectedPayment = checkoutForm.querySelector('input[name="payment_method"]:checked');
+        if (selectedPayment && selectedPayment.value !== "cod") {
+            checkoutSubmit.textContent = "Create unpaid online order";
+        }
+    </script>
+</body>
+</html>

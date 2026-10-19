@@ -84,19 +84,26 @@
                     <p class="product-detail-description">{{ product.description }}</p>
 
                     <div class="product-detail-stock">
+                        {% if stock > 0 %}
                         <span aria-hidden="true">✓</span>
-                        Sample listing · Availability not verified
+                        {{ stock }} in stock · Standard variant
+                        {% else %}
+                        <span class="is-out-of-stock" aria-hidden="true">!</span>
+                        Currently out of stock
+                        {% endif %}
                     </div>
 
-                    <div class="product-detail-quantity">
-                        <label for="productQuantity">Quantity</label>
-                        <input id="productQuantity" type="number" min="1" value="1" inputmode="numeric">
-                    </div>
-
-                    <button class="product-detail-buy" id="productBuyNow" type="button">Buy Now</button>
-                    <p class="product-detail-purchase-note" id="productPurchaseNotice" role="status" hidden>
-                        This is a demo listing. Purchases are not available yet.
-                    </p>
+                    <form method="post" action="{{ url_for('start_checkout') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="product_slug" value="{{ product.slug }}">
+                        <div class="product-detail-quantity">
+                            <label for="productQuantity">Quantity</label>
+                            <input id="productQuantity" name="quantity" type="number" min="1" max="{{ stock }}" value="1" inputmode="numeric" required {% if stock < 1 %}disabled{% endif %}>
+                        </div>
+                        <button class="product-detail-buy" id="productBuyNow" type="submit" {% if stock < 1 %}disabled{% endif %}>
+                            {% if stock > 0 %}Buy Now{% else %}Out of stock{% endif %}
+                        </button>
+                    </form>
 
                     <ul class="product-detail-highlights" aria-label="Product highlights">
                         {% for feature in product.features %}
@@ -196,13 +203,6 @@
     </footer>
 
     <script>
-        const productBuyNow = document.getElementById("productBuyNow");
-        const productPurchaseNotice = document.getElementById("productPurchaseNotice");
-
-        productBuyNow.addEventListener("click", function() {
-            productPurchaseNotice.hidden = false;
-        });
-
         const productMainImage = document.getElementById("productMainImage");
         const productMainIcon = document.getElementById("productMainIcon");
 

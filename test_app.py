@@ -31,6 +31,32 @@ class AuthenticationFlowTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             return session["csrf_token"]
 
+    def start_checkout(self, slug="casual-sneakers", quantity="1"):
+        products = self.client.get("/products")
+        return self.client.post("/checkout/start", data={
+            "csrf_token": self.csrf_from(products),
+            "product_slug": slug,
+            "quantity": quantity,
+        })
+
+    def checkout_form(self, csrf_token, **overrides):
+        data = {
+            "csrf_token": csrf_token,
+            "customer_name": "Guest Buyer",
+            "customer_email": "guest@example.invalid",
+            "customer_phone": "01712345678",
+            "division": "Dhaka",
+            "district": "Dhanmondi",
+            "address": "House 1, Road 2",
+            "postal_code": "1205",
+            "delivery_note": "",
+            "coupon_code": "",
+            "payment_method": "cod",
+            "quantity": "1",
+        }
+        data.update(overrides)
+        return data
+
     def test_registration_verification_and_login(self):
         with patch.object(bidmart, "send_verification_email") as send_email:
             response = self.client.get("/register.html")
@@ -106,6 +132,8 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertEqual(home.data.count(b'class="product-card"'), 6)
+        self.assertEqual(home.data.count(b'data-buy-now'), 6)
+        self.assertEqual(home.data.count(b'action="/checkout/start"'), 6)
         self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
         for product in bidmart.PRODUCT_CATALOG[:6]:
             self.assertIn(
@@ -175,11 +203,8 @@ class AuthenticationFlowTests(unittest.TestCase):
             response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
         )
-        self.assertEqual(
-            len(re.findall(rb"data-buy-now>", response.data)),
-            len(bidmart.PRODUCT_CATALOG),
-        )
-        self.assertIn(b"This is a demo listing. Purchases are not available yet.", response.data)
+        self.assertEqual(response.data.count(b'data-buy-now'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'name="product_slug"'), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
@@ -194,8 +219,170 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"Seller information", response.data)
                 self.assertIn(b"Sample rating overview", response.data)
                 self.assertIn(b"Related Products", response.data)
-                self.assertIn(b"Availability not verified", response.data)
+                self.assertIn(b"10 in stock", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
+
+    def test_guest_cod_checkout_applies_server_coupon_and_confirms_order_once(self):
+        start = self.start_checkout(quantity="2")
+        self.assertEqual(start.status_code, 302)
+        checkout = self.client.get("/checkout")
+        self.assertEqual(checkout.status_code, 200)
+        self.assertIn(b"continue as guest", checkout.data)
+        self.assertIn(b"Standard variant", checkout.data)
+
+        csrf = self.csrf_from(checkout)
+        coupon = self.client.post("/checkout/apply-coupon", data={
+            "csrf_token": csrf,
+            "coupon_code": "SAVE50",
+            "division": "Chattogram",
+            "quantity": "2",
+        })
+        self.assertEqual(coupon.status_code, 200)
+        self.assertEqual(coupon.json["discount"], 50)
+        self.assertEqual(coupon.json["total"], 4070)
+
+        response = self.client.post(
+            "/checkout",
+            data=self.checkout_form(
+                csrf,
+                quantity="2",
+                coupon_code="SAVE50",
+                division="Chattogram",
+                price="1",
+                total="1",
+                delivery_fee="0",
+                discount="999999",
+            ),
+        )
+        self.assertEqual(response.status_code, 302)
+        confirmation = self.client.get(response.headers["Location"])
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertIn(b"Your order is confirmed", confirmation.data)
+        self.assertIn(b"Payment status", confirmation.data)
+        self.assertIn(b"Track order", confirmation.data)
+        self.assertIn(b"Continue shopping", confirmation.data)
+        self.assertIn(b"House 1, Road 2", confirmation.data)
+        self.assertIn(b"Chattogram", confirmation.data)
+        track_path = re.search(rb'href="(/orders/[^"]+/track/[^"]+)"', confirmation.data).group(1).decode()
+        self.assertIn(b"ORDER TRACKING", self.client.get(track_path).data)
+
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT order_number, order_status, payment_status, subtotal, delivery_fee, discount, total "
+                "FROM orders"
+            ).fetchone()
+            item = connection.execute("SELECT quantity, unit_price FROM order_items").fetchone()
+            stock = connection.execute(
+                "SELECT stock FROM product_inventory WHERE product_slug = 'casual-sneakers'"
+            ).fetchone()["stock"]
+        self.assertEqual(order["order_status"], "confirmed")
+        self.assertEqual(order["payment_status"], "unpaid")
+        self.assertEqual((order["subtotal"], order["delivery_fee"], order["discount"], order["total"]), (4000, 120, 50, 4070))
+        self.assertEqual((item["quantity"], item["unit_price"]), (2, 2000))
+        self.assertEqual(stock, 8)
+
+        duplicate = self.client.post(
+            "/checkout",
+            data=self.checkout_form(csrf, quantity="2", coupon_code="SAVE50"),
+        )
+        self.assertEqual(duplicate.status_code, 302)
+        with bidmart.database() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 1)
+            stock = connection.execute(
+                "SELECT stock FROM product_inventory WHERE product_slug = 'casual-sneakers'"
+            ).fetchone()["stock"]
+        self.assertEqual(stock, 8)
+
+    def test_online_checkout_is_pending_unpaid_and_never_claims_payment(self):
+        self.start_checkout()
+        checkout = self.client.get("/checkout")
+        response = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="bkash"),
+        )
+        self.assertEqual(response.status_code, 302)
+        confirmation = self.client.get(response.headers["Location"])
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertIn(b"gateway is not configured", confirmation.data)
+        self.assertIn(b"Pending / Unpaid", confirmation.data)
+
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT order_status, payment_status, payment_method FROM orders"
+            ).fetchone()
+            stock = connection.execute(
+                "SELECT stock FROM product_inventory WHERE product_slug = 'casual-sneakers'"
+            ).fetchone()["stock"]
+        self.assertEqual(tuple(order), ("pending", "unpaid", "bkash"))
+        self.assertEqual(stock, 10)
+
+    def test_checkout_rejects_invalid_shipping_quantity_and_coupon_without_order(self):
+        self.start_checkout()
+        checkout = self.client.get("/checkout")
+        csrf = self.csrf_from(checkout)
+
+        invalid_shipping = self.client.post(
+            "/checkout",
+            data=self.checkout_form(csrf, customer_phone="123", address=""),
+        )
+        self.assertEqual(invalid_shipping.status_code, 400)
+        self.assertIn(b"Enter a valid Bangladesh mobile number", invalid_shipping.data)
+        self.assertIn(b"Enter your full delivery address", invalid_shipping.data)
+
+        invalid_quantity = self.client.post(
+            "/checkout",
+            data=self.checkout_form(csrf, quantity="0"),
+        )
+        self.assertEqual(invalid_quantity.status_code, 400)
+        self.assertIn(b"Choose a quantity between 1 and 99", invalid_quantity.data)
+
+        invalid_coupon = self.client.post("/checkout/apply-coupon", data={
+            "csrf_token": csrf,
+            "coupon_code": "NOTREAL",
+            "division": "Dhaka",
+            "quantity": "1",
+        })
+        self.assertEqual(invalid_coupon.status_code, 400)
+        with bidmart.database() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+
+    def test_checkout_rejects_out_of_stock_product_and_unknown_order_tokens(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE product_inventory SET stock = 0 WHERE product_slug = 'casual-sneakers'"
+            )
+        products = self.client.get("/products")
+        response = self.client.post("/checkout/start", data={
+            "csrf_token": self.csrf_from(products),
+            "product_slug": "casual-sneakers",
+            "quantity": "1",
+        })
+        self.assertEqual(response.status_code, 302)
+        product_page = self.client.get(response.headers["Location"])
+        self.assertIn(b"Currently out of stock", product_page.data)
+        self.assertEqual(self.client.get("/orders/BM-UNKNOWN/confirmation/not-a-token").status_code, 404)
+
+    def test_login_preserves_checkout_and_prefills_saved_contact_details(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Saved Buyer", self.email, "01712345678", generate_password_hash("secure-password"), 1),
+            )
+        self.start_checkout()
+        login_page = self.client.get("/login.html?next=/checkout")
+        self.assertIn(b'name="next" value="/checkout"', login_page.data)
+        response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/checkout",
+            "email": self.email,
+            "password": "secure-password",
+        })
+        self.assertEqual(response.headers["Location"], "/checkout")
+        checkout = self.client.get("/checkout")
+        self.assertIn(b'value="Saved Buyer"', checkout.data)
+        self.assertIn(b'value="flow-test@example.invalid"', checkout.data)
+        self.assertIn(b'value="01712345678"', checkout.data)
 
     def test_unknown_product_detail_returns_not_found(self):
         response = self.client.get("/products/not-a-product")
