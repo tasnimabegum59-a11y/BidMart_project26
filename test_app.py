@@ -142,10 +142,10 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'id="profileTrigger"', home.data)
         self.assertIn(b'aria-label="Open dashboard for Test Account"', home.data)
         self.assertLess(home.data.index(b'class="logo"'), home.data.index(b'class="profile-trigger"'))
-        self.assertLess(home.data.index(b'class="profile-trigger"'), home.data.index(b'<nav class="nav-links">'))
-        self.assertLess(home.data.index(b'href="index.html" class="active">Home'), home.data.index(b'href="#products">Products'))
-        self.assertLess(home.data.index(b'href="#products">Products'), home.data.index(b'href="#auctions">Auctions'))
-        self.assertLess(home.data.index(b'href="#auctions">Auctions'), home.data.index(b'href="#about">About'))
+        self.assertLess(home.data.index(b'class="profile-trigger"'), home.data.index(b'<nav class="nav-links" aria-label="Main navigation">'))
+        self.assertLess(home.data.index(b'href="index.html" class="active" aria-current="page">Home'), home.data.index(b'href="/products">Products'))
+        self.assertLess(home.data.index(b'href="/products">Products'), home.data.index(b'href="/auctions">Auctions'))
+        self.assertLess(home.data.index(b'href="/auctions">Auctions'), home.data.index(b'href="#about">About'))
         self.assertIn(b"Personal Dashboard", home.data)
         self.assertIn(b"Logout", home.data)
         self.assertIn(b"Coming soon", home.data)
@@ -156,6 +156,63 @@ class AuthenticationFlowTests(unittest.TestCase):
         })
         self.assertEqual(logout_response.status_code, 302)
         self.assertNotIn(b'id="profileTrigger"', self.client.get("/").data)
+
+    def test_products_page_shows_discounted_and_regular_price_items(self):
+        response = self.client.get("/products")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"<h1>All Products</h1>", response.data)
+        self.assertEqual(response.data.count(b'class="product-card"'), len(bidmart.PRODUCT_CATALOG))
+        self.assertIn(b"26% OFF", response.data)
+        self.assertEqual(response.data.count(b"REGULAR PRICE"), 3)
+        self.assertEqual(
+            len(re.findall(rb"data-product-details\s*>", response.data)),
+            len(bidmart.PRODUCT_CATALOG),
+        )
+        self.assertEqual(
+            len(re.findall(rb"data-buy-now>", response.data)),
+            len(bidmart.PRODUCT_CATALOG),
+        )
+        self.assertIn(b"This is a demo listing. Purchases are not available yet.", response.data)
+        self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
+        self.assertIn(b'aria-current="page">Products</a>', response.data)
+        self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
+
+    def test_logged_in_navigation_header_is_shared_across_main_pages(self):
+        with bidmart.database() as connection:
+            cursor = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Test Account", self.email, "", generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_email"] = self.email
+            session["user_name"] = "Test Account"
+            session["user_id"] = cursor.lastrowid
+
+        for path, active_link in (
+            ("/", b'href="index.html" class="active" aria-current="page">Home</a>'),
+            ("/products", b'href="/products" class="active" aria-current="page">Products</a>'),
+            ("/auctions", b'href="/auctions" class="active" aria-current="page">Auctions</a>'),
+            ("/auction/iphone-14-pro-max", b'href="/auctions" class="active" aria-current="page">Auctions</a>'),
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b'class="container navbar"', response.data)
+                self.assertIn(b'id="profileTrigger"', response.data)
+                self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
+                self.assertIn(active_link, response.data)
+                self.assertIn(b'class="dashboard-overlay" id="dashboardDrawer"', response.data)
+
+    def test_account_pages_use_the_shared_navigation(self):
+        for path in ("/login.html", "/register.html", "/forgot-password"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(b'class="container navbar"', response.data)
+                self.assertIn(b'<nav class="nav-links" aria-label="Main navigation">', response.data)
+                self.assertIn(b'href="/auctions">Auctions</a>', response.data)
 
     def test_unverified_account_cannot_login(self):
         with patch.object(bidmart, "send_verification_email"):
@@ -371,6 +428,40 @@ class AuctionFlowTests(unittest.TestCase):
             self.assertIn(detail, response.data)
         self.assertIn(b"Login to Bid", response.data)
         self.assertNotIn(b'name="bid_amount"', response.data)
+
+    def test_auctions_page_shows_product_details_prices_timers_and_bid_links(self):
+        response = self.client.get("/auctions")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data.count(b'class="auction-list-card'), len(bidmart.AUCTION_LISTINGS))
+        self.assertEqual(response.data.count(b'class="auction-card-bid"'), len(bidmart.AUCTION_LISTINGS))
+        self.assertIn(b"Original price", response.data)
+        self.assertIn(b"Current bid", response.data)
+        self.assertIn(b"Time left:", response.data)
+        self.assertIn(b"Wireless Earbuds", response.data)
+        self.assertIn(b"DEMO AUCTION", response.data)
+        self.assertIn(b'href="/auctions" class="active" aria-current="page">Auctions</a>', response.data)
+
+    def test_non_featured_auction_can_open_details_and_accept_a_bid(self):
+        self.add_logged_in_bidder()
+        slug = "smart-watch-bluetooth"
+        detail_url = f"/auction/{slug}"
+
+        details = self.client.get(detail_url)
+        self.assertEqual(details.status_code, 200)
+        self.assertIn(b"Smart Watch (Bluetooth Calling)", details.data)
+        self.assertIn("৳ 4,000".encode(), details.data)
+
+        response = self.client.post(f"{detail_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "2300",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], detail_url)
+        self.assertIn(
+            "Your bid of ৳ 2,300 was placed successfully.".encode(),
+            self.client.get(detail_url).data,
+        )
 
     def test_guest_is_sent_to_login_before_bidding(self):
         with bidmart.database() as connection:

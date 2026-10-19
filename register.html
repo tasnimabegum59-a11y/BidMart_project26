@@ -13,13 +13,8 @@
 
 <body class="register-page">
 
-    <!-- উপরের Navigation Bar -->
-    <header class="topbar">
-        <a href="index.html" class="logo" aria-label="BidMart home">
-            <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-        </a>
-        <a href="index.html" class="home-link">Home</a>
-    </header>
+    {% set active_page = "account" %}
+    {% include "site_header.html" %}
 
     <!-- Registration-এর মূল অংশ -->
     <main class="page-container">

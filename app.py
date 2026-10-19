@@ -21,7 +21,181 @@ INSTANCE = ROOT / "instance"
 DATABASE = INSTANCE / "bidmart.sqlite3"
 DEVELOPMENT_SECRET_FILE = INSTANCE / "flask-secret.key"
 DEMO_AUCTION_SLUG = "iphone-14-pro-max"
-DEMO_AUCTION_MINIMUM_INCREMENT = 500
+AUCTION_LISTINGS = (
+    {
+        "slug": DEMO_AUCTION_SLUG,
+        "name": "iPhone 14 Pro Max (256GB)",
+        "category": "Smartphones",
+        "description": "Deep Purple · 256GB · Powerful triple-camera system.",
+        "image": "products/iphone-14-pro.png",
+        "icon": None,
+        "original_price": 125000,
+        "starting_bid": 92500,
+        "duration_days": 7,
+        "minimum_increment": 500,
+    },
+    {
+        "slug": "smart-watch-bluetooth",
+        "name": "Smart Watch (Bluetooth Calling)",
+        "category": "Wearables",
+        "description": "Bluetooth calling, heart-rate monitor, and IP68 water resistance.",
+        "image": "products/smart-watch.png",
+        "icon": None,
+        "original_price": 4000,
+        "starting_bid": 2200,
+        "duration_days": 3,
+        "minimum_increment": 100,
+    },
+    {
+        "slug": "jbl-wireless-headphones",
+        "name": "JBL Wireless Headphones",
+        "category": "Audio",
+        "description": "Wireless over-ear headphones with deep bass and long battery life.",
+        "image": "products/jbl-headphones.png",
+        "icon": None,
+        "original_price": 5000,
+        "starting_bid": 1800,
+        "duration_days": 5,
+        "minimum_increment": 100,
+    },
+    {
+        "slug": "casual-sneakers",
+        "name": "Casual Sneakers",
+        "category": "Fashion",
+        "description": "Lightweight, breathable everyday sneakers with a flexible sole.",
+        "image": "products/casual-sneakers.svg",
+        "icon": None,
+        "original_price": 2500,
+        "starting_bid": 1200,
+        "duration_days": 2,
+        "minimum_increment": 100,
+    },
+    {
+        "slug": "wireless-earbuds",
+        "name": "Wireless Earbuds",
+        "category": "Audio",
+        "description": "Compact earbuds with touch controls and a charging case.",
+        "image": "products/wireless-earbuds.svg",
+        "icon": None,
+        "original_price": 2500,
+        "starting_bid": 1000,
+        "duration_days": 4,
+        "minimum_increment": 100,
+    },
+    {
+        "slug": "ideapad-slim-3-laptop",
+        "name": "IdeaPad Slim 3 Laptop",
+        "category": "Computers",
+        "description": "A versatile laptop for study, work, and everyday tasks.",
+        "image": None,
+        "icon": "💻",
+        "original_price": 72000,
+        "starting_bid": 45000,
+        "duration_days": 6,
+        "minimum_increment": 500,
+    },
+)
+PRODUCT_CATALOG = (
+    {
+        "name": "iPhone 14 Pro Max (256GB)",
+        "category": "Smartphones",
+        "description": "Powerful. Premium. Perfect.",
+        "image": "products/iphone-14-pro.png",
+        "icon": None,
+        "rating": "4.8",
+        "reviews": "1.2k",
+        "price": 92500,
+        "old_price": 125000,
+    },
+    {
+        "name": "Smart Watch (Bluetooth Calling)",
+        "category": "Wearables",
+        "description": "Stay connected, stay fit.",
+        "image": "products/smart-watch.png",
+        "icon": None,
+        "rating": "4.6",
+        "reviews": "850",
+        "price": 2999,
+        "old_price": 4000,
+    },
+    {
+        "name": "JBL Wireless Headphones",
+        "category": "Audio",
+        "description": "Feel the bass, feel the music.",
+        "image": "products/jbl-headphones.png",
+        "icon": None,
+        "rating": "4.7",
+        "reviews": "2.4k",
+        "price": 2999,
+        "old_price": 5000,
+    },
+    {
+        "name": "Casual Sneakers",
+        "category": "Fashion",
+        "description": "Everyday comfort, fresh style.",
+        "image": "products/casual-sneakers.svg",
+        "icon": None,
+        "rating": "4.5",
+        "reviews": "420",
+        "price": 2000,
+        "old_price": 2500,
+    },
+    {
+        "name": "Wireless Earbuds",
+        "category": "Audio",
+        "description": "Clear sound, all day long.",
+        "image": "products/wireless-earbuds.svg",
+        "icon": None,
+        "rating": "4.6",
+        "reviews": "680",
+        "price": 1850,
+        "old_price": 2500,
+    },
+    {
+        "name": "Compact Digital Camera",
+        "category": "Photography",
+        "description": "Capture every moment in detail.",
+        "image": "products/digital-camera.svg",
+        "icon": None,
+        "rating": "4.8",
+        "reviews": "315",
+        "price": 18500,
+        "old_price": 22000,
+    },
+    {
+        "name": "IdeaPad Slim 3 Laptop",
+        "category": "Computers",
+        "description": "A reliable laptop for work, study, and everyday use.",
+        "image": None,
+        "icon": "💻",
+        "rating": "4.7",
+        "reviews": "96",
+        "price": 72000,
+        "old_price": None,
+    },
+    {
+        "name": "Wireless Keyboard and Mouse",
+        "category": "Accessories",
+        "description": "A comfortable wireless set for your desk.",
+        "image": None,
+        "icon": "⌨",
+        "rating": "4.5",
+        "reviews": "73",
+        "price": 3200,
+        "old_price": None,
+    },
+    {
+        "name": "Ceramic Table Lamp",
+        "category": "Home",
+        "description": "A warm, simple accent for your home.",
+        "image": None,
+        "icon": "💡",
+        "rating": "4.4",
+        "reviews": "51",
+        "price": 2450,
+        "old_price": None,
+    },
+)
 load_dotenv(ROOT / ".env")
 
 
@@ -135,10 +309,16 @@ def initialize_database():
                 created_at INTEGER NOT NULL
             )"""
         )
-        connection.execute(
-            "INSERT OR IGNORE INTO auctions (slug, current_bid, ends_at) VALUES (?, ?, ?)",
-            (DEMO_AUCTION_SLUG, 92500, int(time.time()) + 7 * 24 * 60 * 60),
-        )
+        now = int(time.time())
+        for listing in AUCTION_LISTINGS:
+            connection.execute(
+                "INSERT OR IGNORE INTO auctions (slug, current_bid, ends_at) VALUES (?, ?, ?)",
+                (
+                    listing["slug"],
+                    listing["starting_bid"],
+                    now + listing["duration_days"] * 24 * 60 * 60,
+                ),
+            )
 
 
 initialize_database()
@@ -278,12 +458,55 @@ def home():
         "index.html",
         current_user_email=session.get("user_email"),
         current_user_name=current_user_name,
+        active_page="home",
         featured_auction=auction,
         now=int(time.time()),
     )
 
 
+@app.get("/products")
+def products_page():
+    return render_template(
+        "products.html",
+        products=PRODUCT_CATALOG,
+        current_user_email=session.get("user_email"),
+        current_user_name=session.get("user_name"),
+        active_page="products",
+    )
+
+
+@app.get("/auctions")
+def auctions_page():
+    now = int(time.time())
+    with database() as connection:
+        auctions = connection.execute(
+            "SELECT slug, current_bid, ends_at FROM auctions ORDER BY ends_at"
+        ).fetchall()
+    auction_by_slug = {auction["slug"]: auction for auction in auctions}
+    listings = []
+    for listing in AUCTION_LISTINGS:
+        auction = auction_by_slug.get(listing["slug"])
+        if auction:
+            listings.append({
+                **listing,
+                "current_bid": auction["current_bid"],
+                "ends_at": auction["ends_at"],
+                "is_ended": auction["ends_at"] <= now,
+            })
+    return render_template(
+        "auctions.html",
+        auctions=listings,
+        now=now,
+        current_user_email=session.get("user_email"),
+        current_user_name=session.get("user_name"),
+        active_page="auctions",
+    )
+
+
 def get_auction(slug):
+    listing = next((item for item in AUCTION_LISTINGS if item["slug"] == slug), None)
+    if not listing:
+        abort(404)
     with database() as connection:
         auction = connection.execute(
             "SELECT id, current_bid, ends_at FROM auctions WHERE slug = ?",
@@ -298,12 +521,13 @@ def get_auction(slug):
             "auction_bids.id DESC LIMIT 10",
             (auction["id"],),
         ).fetchall()
-    return auction, recent_bids
+    return {**listing, **dict(auction)}, recent_bids
 
 
-@app.get("/auction/" + DEMO_AUCTION_SLUG)
-def auction_details():
-    auction, recent_bids = get_auction(DEMO_AUCTION_SLUG)
+@app.get("/auction/<slug>")
+@app.get("/auction/" + DEMO_AUCTION_SLUG, defaults={"slug": DEMO_AUCTION_SLUG})
+def auction_details(slug):
+    auction, recent_bids = get_auction(slug)
     bidder_history = []
     for bid in recent_bids:
         name_parts = bid["full_name"].split()
@@ -317,42 +541,49 @@ def auction_details():
         "auction_detail.html",
         auction=auction,
         recent_bids=bidder_history,
+        auction_url=url_for("auction_details", slug=slug),
         current_user_name=session.get("user_name"),
         current_user_email=session.get("user_email"),
-        minimum_bid=auction["current_bid"] + DEMO_AUCTION_MINIMUM_INCREMENT,
-        minimum_increment=DEMO_AUCTION_MINIMUM_INCREMENT,
+        active_page="auctions",
+        minimum_bid=auction["current_bid"] + auction["minimum_increment"],
+        minimum_increment=auction["minimum_increment"],
         now=int(time.time()),
     )
 
 
-@app.post("/auction/" + DEMO_AUCTION_SLUG + "/bid")
-def place_bid():
+@app.post("/auction/<slug>/bid")
+@app.post("/auction/" + DEMO_AUCTION_SLUG + "/bid", defaults={"slug": DEMO_AUCTION_SLUG})
+def place_bid(slug):
+    listing = next((item for item in AUCTION_LISTINGS if item["slug"] == slug), None)
+    if not listing:
+        abort(404)
+    auction_url = url_for("auction_details", slug=slug)
     if not session.get("user_id"):
         flash("Log in to your verified account before placing a bid.", "error")
-        return redirect(url_for("login_page", next=url_for("auction_details")))
+        return redirect(url_for("login_page", next=auction_url))
 
     raw_amount = request.form.get("bid_amount", "").replace(",", "").strip()
     try:
         amount = int(raw_amount)
     except ValueError:
         flash("Enter a whole-number bid amount.", "error")
-        return redirect(url_for("auction_details"))
+        return redirect(auction_url)
 
     now = int(time.time())
     with database() as connection:
         auction = connection.execute(
             "SELECT id, current_bid, ends_at FROM auctions WHERE slug = ?",
-            (DEMO_AUCTION_SLUG,),
+            (slug,),
         ).fetchone()
         if not auction:
             abort(404)
         if auction["ends_at"] <= now:
             flash("This auction has ended and is no longer accepting bids.", "error")
-            return redirect(url_for("auction_details"))
-        minimum_bid = auction["current_bid"] + DEMO_AUCTION_MINIMUM_INCREMENT
+            return redirect(auction_url)
+        minimum_bid = auction["current_bid"] + listing["minimum_increment"]
         if amount < minimum_bid:
             flash(f"Your bid must be at least ৳ {minimum_bid:,}.", "error")
-            return redirect(url_for("auction_details"))
+            return redirect(auction_url)
 
         updated = connection.execute(
             "UPDATE auctions SET current_bid = ? WHERE id = ? AND current_bid = ? AND ends_at > ?",
@@ -360,14 +591,14 @@ def place_bid():
         )
         if updated.rowcount != 1:
             flash("Another bid was placed first. Review the new current bid and try again.", "error")
-            return redirect(url_for("auction_details"))
+            return redirect(auction_url)
         connection.execute(
             "INSERT INTO auction_bids (auction_id, account_id, amount, created_at) VALUES (?, ?, ?, ?)",
             (auction["id"], session["user_id"], amount, now),
         )
 
     flash(f"Your bid of ৳ {amount:,} was placed successfully.", "success")
-    return redirect(url_for("auction_details"))
+    return redirect(auction_url)
 
 
 @app.get("/style.css")

@@ -616,6 +616,7 @@ a { /* সব link নির্বাচন করে */
 }
 
 .section-heading h2, /* Section heading-এর h2 */
+.section-heading h1,
 .auction-text h2, /* Auction heading-এর h2 */
 .about-content h2 { /* About heading-এর h2 */
     font-size: 34px; /* heading-এর আকার বড় করে */
@@ -632,6 +633,104 @@ a { /* সব link নির্বাচন করে */
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
     gap: 22px;
+}
+
+.product-card[hidden] {
+    display: none;
+}
+
+.catalog-grid {
+    margin-top: 36px;
+}
+
+.catalog-grid .product-info h2 {
+    margin-bottom: 5px;
+    color: var(--color-primary);
+    font-size: 17px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.catalog-grid .product-purchase {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.catalog-grid .product-actions {
+    margin-top: 8px;
+}
+
+.catalog-grid .product-btn {
+    width: 100%;
+    min-height: 40px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.catalog-product-details {
+    display: grid;
+    gap: 5px;
+    padding: 12px 14px;
+    border-top: 1px solid rgba(98, 159, 173, 0.18);
+    color: #486b7c;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.catalog-purchase-notice {
+    padding: 10px 14px;
+    border-top: 1px solid rgba(217, 155, 34, 0.2);
+    background: #fff9e9;
+    color: #6d5a31;
+    font-size: 12px;
+}
+
+.catalog-product-details[hidden],
+.catalog-purchase-notice[hidden] {
+    display: none;
+}
+
+.catalog-product-icon {
+    font-size: 74px;
+    line-height: 1;
+}
+
+.product-regular-price {
+    background: #e8f5ec;
+    color: #267544;
+}
+
+.catalog-account {
+    color: var(--color-secondary);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.show-all-products {
+    display: block;
+    width: 100%;
+    margin-top: 24px;
+    padding: 12px 20px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--color-secondary);
+    color: #ffffff;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    transition: background-color 160ms ease;
+}
+
+.show-all-products:hover {
+    background: var(--color-primary);
+}
+
+.show-all-products:focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 3px;
+}
+
+.show-all-products[hidden] {
+    display: none;
 }
 
 .product-card { /* প্রতিটি product card */
@@ -851,6 +950,217 @@ a { /* সব link নির্বাচন করে */
 }
 
 /* Auction details page */
+.auction-catalog-notice {
+    margin: 0 0 24px;
+    padding: 12px 16px;
+    border-left: 3px solid #d99b22;
+    border-radius: 6px;
+    background: #fff9e9;
+    color: #6d5a31;
+    font-size: 13px;
+}
+
+.auction-list-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 22px;
+}
+
+.auction-list-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 6px 22px rgba(12, 44, 85, 0.07);
+    transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.auction-list-card:hover {
+    box-shadow: 0 12px 28px rgba(12, 44, 85, 0.13);
+    transform: translateY(-3px);
+}
+
+.auction-list-image {
+    position: relative;
+    display: flex;
+    min-height: 210px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(145deg, #f3faf9, #f4f1fc);
+}
+
+.auction-list-image img {
+    display: block;
+    width: 100%;
+    height: 210px;
+    padding: 18px;
+    object-fit: contain;
+}
+
+.auction-list-icon {
+    font-size: 76px;
+    line-height: 1;
+}
+
+.auction-list-badge {
+    position: absolute;
+    z-index: 1;
+    top: 12px;
+    left: 12px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #e83a52;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.auction-list-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    padding: 16px;
+}
+
+.auction-list-content .category {
+    margin-bottom: 5px;
+}
+
+.auction-list-content h2 {
+    margin-bottom: 7px;
+    color: var(--color-primary);
+    font-size: 18px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.auction-list-description {
+    min-height: 42px;
+    margin-bottom: 15px;
+    color: #607986;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.auction-list-prices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid rgba(98, 159, 173, 0.2);
+    border-radius: 10px;
+    background: #fbfdfd;
+}
+
+.auction-list-prices span {
+    display: block;
+    margin-bottom: 3px;
+    color: #708793;
+    font-size: 11px;
+}
+
+.auction-list-prices strong {
+    display: block;
+    font-size: clamp(13px, 1.5vw, 17px);
+    overflow-wrap: anywhere;
+}
+
+.auction-list-original {
+    color: #75858c;
+    text-decoration: line-through;
+}
+
+.auction-list-current {
+    color: #168344;
+}
+
+.auction-list-time {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 14px;
+    color: #6c7f88;
+    font-size: 12px;
+}
+
+.auction-list-time > span,
+.auction-list-time strong {
+    color: #df4c60;
+}
+
+.auction-list-time strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.auction-card-bid {
+    display: inline-flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    margin-top: auto;
+    padding: 9px 16px;
+    border-radius: 8px;
+    background: #26748a;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 800;
+    text-align: center;
+}
+
+.auction-card-bid:hover,
+.auction-card-bid:focus-visible {
+    background: var(--color-primary);
+}
+
+.auction-card-bid.is-disabled {
+    background: #87969d;
+    cursor: not-allowed;
+}
+
+.auction-list-card.is-ended .auction-list-time strong {
+    color: #788991;
+}
+
+.auction-catalog-empty {
+    padding: 32px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    color: #607986;
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .auction-list-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .auction-list-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 16px;
+    }
+
+    .auction-list-image,
+    .auction-list-image img {
+        min-height: 190px;
+        height: 190px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auction-list-card {
+        transition: none;
+    }
+}
+
 .auction-detail-navbar {
     display: flex;
     min-height: 78px;
@@ -951,6 +1261,13 @@ a { /* সব link নির্বাচন করে */
     height: 330px;
     padding: 30px;
     object-fit: contain;
+}
+
+.auction-detail-icon {
+    display: grid;
+    min-height: 330px;
+    place-items: center;
+    font-size: 110px;
 }
 
 .auction-image-caption {

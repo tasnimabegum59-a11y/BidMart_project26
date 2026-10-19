@@ -9,31 +9,16 @@
     <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
 </head>
 <body class="auction-detail-page">
-    <header class="header">
-        <div class="container auction-detail-navbar">
-            <a href="{{ url_for('home') }}" class="logo" aria-label="BidMart home">
-                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-            </a>
-            <nav class="auction-detail-nav" aria-label="Main navigation">
-                <a href="{{ url_for('home') }}">Home</a>
-                <a href="{{ url_for('home') }}#products">Products</a>
-                <a href="{{ url_for('auction_details') }}" aria-current="page">Auctions</a>
-            </nav>
-            {% if current_user_email %}
-            <span class="auction-detail-account">Hello, {{ current_user_name or current_user_email }}</span>
-            {% else %}
-            <a class="login-btn" href="{{ url_for('login_page') }}">Login</a>
-            {% endif %}
-        </div>
-    </header>
+    {% set active_page = "auctions" %}
+    {% include "site_header.html" %}
 
     <main class="container auction-detail-content">
         <nav class="auction-breadcrumb" aria-label="Breadcrumb">
             <a href="{{ url_for('home') }}">Home</a>
             <span aria-hidden="true">/</span>
-            <a href="{{ url_for('auction_details') }}">Auctions</a>
+            <a href="{{ url_for('auctions_page') }}">Auctions</a>
             <span aria-hidden="true">/</span>
-            <span>iPhone 14 Pro Max</span>
+            <span>{{ auction.name }}</span>
         </nav>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -45,18 +30,22 @@
         <section class="auction-detail-card" aria-labelledby="auctionTitle">
             <div class="auction-detail-gallery">
                 <span class="auction-live-badge"><span aria-hidden="true"></span> DEMO AUCTION</span>
+                {% if auction.image %}
                 <img
                     class="auction-detail-image"
-                    src="{{ url_for('static', filename='products/iphone-14-pro.png') }}"
-                    alt="Deep purple iPhone 14 Pro Max, 256GB"
+                    src="{{ url_for('static', filename=auction.image) }}"
+                    alt="{{ auction.name }}"
                 >
-                <p class="auction-image-caption">Deep Purple · 256GB · Product image for this demo listing</p>
+                {% else %}
+                <span class="auction-detail-icon" aria-hidden="true">{{ auction.icon }}</span>
+                {% endif %}
+                <p class="auction-image-caption">{{ auction.category }} · Demo auction listing</p>
             </div>
 
             <div class="auction-detail-information">
                 <p class="auction-eyebrow">BIDMART FEATURED AUCTION</p>
-                <h1 id="auctionTitle">iPhone 14 Pro Max (256GB)</h1>
-                <p class="auction-product-meta">Apple <span>·</span> 256GB <span>·</span> Deep Purple</p>
+                <h1 id="auctionTitle">{{ auction.name }}</h1>
+                <p class="auction-product-meta">{{ auction.category }} <span>·</span> {{ auction.description }}</p>
 
                 <div class="auction-countdown" aria-live="polite">
                     <span class="auction-clock" aria-hidden="true">◷</span>
@@ -69,7 +58,7 @@
                 <div class="auction-bid-summary">
                     <div>
                         <span>Original price</span>
-                        <strong class="auction-original-price">৳ 1,25,000</strong>
+                        <strong class="auction-original-price">৳ {{ "{:,}".format(auction.original_price) }}</strong>
                     </div>
                     <div>
                         <span>Current highest bid</span>
@@ -88,7 +77,7 @@
 
                 {% if current_user_email %}
                     {% if auction.ends_at > now %}
-                    <form class="auction-bid-form" action="{{ url_for('place_bid') }}" method="post">
+                    <form class="auction-bid-form" action="{{ url_for('place_bid', slug=auction.slug) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <label for="bidAmount">Your bid (৳)</label>
                         <div class="auction-bid-input-row">
@@ -112,7 +101,7 @@
                 {% else %}
                     <div class="auction-login-prompt">
                         <p>Log in with your verified BidMart account to place a bid.</p>
-                        <a class="auction-place-bid" href="{{ url_for('login_page', next=url_for('auction_details')) }}">Login to Bid</a>
+                        <a class="auction-place-bid" href="{{ url_for('login_page', next=auction_url) }}">Login to Bid</a>
                     </div>
                 {% endif %}
             </div>
@@ -122,8 +111,8 @@
             <section class="auction-information-panel" aria-labelledby="listingDetailsTitle">
                 <h2 id="listingDetailsTitle">Listing details</h2>
                 <dl class="auction-facts">
-                    <div><dt>Product</dt><dd>Apple iPhone 14 Pro Max</dd></div>
-                    <div><dt>Storage and color</dt><dd>256GB · Deep Purple</dd></div>
+                    <div><dt>Product</dt><dd>{{ auction.name }}</dd></div>
+                    <div><dt>Category</dt><dd>{{ auction.category }}</dd></div>
                     <div><dt>Condition</dt><dd>Demo listing; actual condition not verified</dd></div>
                     <div><dt>Seller</dt><dd>BidMart Demo Store</dd></div>
                     <div><dt>Location</dt><dd>Dhaka, Bangladesh (demo)</dd></div>

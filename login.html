@@ -19,18 +19,8 @@
 
 <body class="register-page">
 
-    <!-- উপরের Navigation Bar -->
-    <header class="topbar">
-
-        <!-- Logo-তে ক্লিক করলে Home Page-এ যাবে -->
-        <a href="index.html" class="logo" aria-label="BidMart home">
-            <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-        </a>
-
-        <!-- Home Page-এর লিংক -->
-        <a href="index.html" class="home-link">Home</a>
-
-    </header>
+    {% set active_page = "account" %}
+    {% include "site_header.html" %}
 
     <!-- Login Page-এর মূল অংশ -->
     <main class="page-container">

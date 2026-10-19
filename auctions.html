@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Browse BidMart demo auctions, compare original prices and current bids, and see how much time is left.">
+    <title>Auctions | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "auctions" %}
+    {% include "site_header.html" %}
+
+    <main class="catalog section-padding">
+        <div class="container">
+            <div class="section-heading">
+                <p class="tagline">BID AND WIN</p>
+                <h1>Live Auctions</h1>
+                <p>Explore products, compare current bids with original prices, and see how much time remains.</p>
+            </div>
+
+            <p class="auction-catalog-notice">
+                These are demo listings using sample product information. Bids are recorded for demonstration only; no real sale, payment, or delivery takes place.
+            </p>
+
+            {% if auctions %}
+            <div class="auction-list-grid">
+                {% for auction in auctions %}
+                <article
+                    class="auction-list-card{% if auction.is_ended %} is-ended{% endif %}"
+                    data-ends-at="{{ auction.ends_at }}"
+                >
+                    <div class="auction-list-image">
+                        <span class="auction-list-badge">DEMO AUCTION</span>
+                        {% if auction.image %}
+                        <img src="{{ url_for('static', filename=auction.image) }}" alt="{{ auction.name }}">
+                        {% else %}
+                        <span class="auction-list-icon" aria-hidden="true">{{ auction.icon }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="auction-list-content">
+                        <p class="category">{{ auction.category }}</p>
+                        <h2>{{ auction.name }}</h2>
+                        <p class="auction-list-description">{{ auction.description }}</p>
+                        <div class="auction-list-prices">
+                            <div>
+                                <span>Original price</span>
+                                <strong class="auction-list-original">৳ {{ "{:,}".format(auction.original_price) }}</strong>
+                            </div>
+                            <div>
+                                <span>Current bid</span>
+                                <strong class="auction-list-current">৳ {{ "{:,}".format(auction.current_bid) }}</strong>
+                            </div>
+                        </div>
+                        <p class="auction-list-time">
+                            <span aria-hidden="true">◷</span>
+                            Time left:
+                            <strong data-auction-countdown>{% if auction.is_ended %}Ended{% else %}Calculating…{% endif %}</strong>
+                        </p>
+                        {% if auction.is_ended %}
+                        <a class="auction-card-bid is-disabled" href="{{ url_for('auction_details', slug=auction.slug) }}" aria-disabled="true">Auction ended</a>
+                        {% else %}
+                        <a class="auction-card-bid" href="{{ url_for('auction_details', slug=auction.slug) }}">Bid Now</a>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="auction-catalog-empty">There are no auctions to show right now.</p>
+            {% endif %}
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+
+    <script>
+        document.querySelectorAll(".auction-list-card").forEach(function(card) {
+            const countdown = card.querySelector("[data-auction-countdown]");
+            const endTime = Number(card.dataset.endsAt) * 1000;
+            const bidLink = card.querySelector(".auction-card-bid");
+
+            function updateCountdown() {
+                const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+                if (remaining === 0) {
+                    countdown.textContent = "Ended";
+                    card.classList.add("is-ended");
+                    if (bidLink && !bidLink.classList.contains("is-disabled")) {
+                        bidLink.textContent = "Auction ended";
+                        bidLink.classList.add("is-disabled");
+                        bidLink.setAttribute("aria-disabled", "true");
+                    }
+                    return;
+                }
+
+                const days = Math.floor(remaining / 86400);
+                const hours = Math.floor((remaining % 86400) / 3600);
+                const minutes = Math.floor((remaining % 3600) / 60);
+                const seconds = remaining % 60;
+                countdown.textContent = days
+                    ? `${days}d ${hours}h ${minutes}m ${seconds}s`
+                    : `${hours}h ${minutes}m ${seconds}s`;
+            }
+
+            if (bidLink) {
+                bidLink.addEventListener("click", function(event) {
+                    if (bidLink.getAttribute("aria-disabled") === "true") {
+                        event.preventDefault();
+                    }
+                });
+            }
+
+            updateCountdown();
+            window.setInterval(updateCountdown, 1000);
+        });
+    </script>
+</body>
+</html>

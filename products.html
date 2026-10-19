@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Browse BidMart products across electronics, fashion, home, and more, including discounted and regular-price items.">
+    <title>All Products | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "products" %}
+    {% include "site_header.html" %}
+
+    <main>
+        <section class="catalog section-padding" id="catalog">
+            <div class="container">
+                <div class="section-heading">
+                    <p class="tagline">OUR COLLECTION</p>
+                    <h1>All Products</h1>
+                    <p>Browse products from across our collection, with discounts and regular prices clearly shown.</p>
+                </div>
+
+                <div class="product-grid catalog-grid">
+                    {% for product in products %}
+                    <article class="product-card" id="product-{{ loop.index }}">
+                        <div class="product-main">
+                            <div class="product-visual">
+                                {% if product.image %}
+                                <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
+                                {% else %}
+                                <span class="catalog-product-icon" aria-hidden="true">{{ product.icon }}</span>
+                                {% endif %}
+                            </div>
+                            <div class="product-info">
+                                <p class="category">{{ product.category }}</p>
+                                <h2>{{ product.name }}</h2>
+                                <p class="product-rating" aria-label="Rated {{ product.rating }} out of 5, from {{ product.reviews }} reviews"><span aria-hidden="true">★★★★★</span> {{ product.rating }} ({{ product.reviews }} reviews)</p>
+                                <p class="product-description">{{ product.description }}</p>
+                            </div>
+                        </div>
+                        <div class="product-purchase">
+                            {% if product.old_price %}
+                            <span class="product-discount">★ {{ (((product.old_price - product.price) / product.old_price) * 100)|round|int }}% OFF</span>
+                            <p class="old-price">৳ {{ "{:,}".format(product.old_price) }}</p>
+                            {% else %}
+                            <span class="product-discount product-regular-price">REGULAR PRICE</span>
+                            <span aria-hidden="true"></span>
+                            {% endif %}
+                            <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
+                            <div class="product-actions">
+                                <button
+                                    class="product-btn product-details-btn"
+                                    type="button"
+                                    aria-controls="product-details-{{ loop.index }}"
+                                    aria-expanded="false"
+                                    data-product-details
+                                >
+                                    ⓘ Know Details
+                                </button>
+                                <button class="product-btn product-buy-btn" type="button" data-buy-now>
+                                    🛒 Buy Now
+                                </button>
+                            </div>
+                        </div>
+                        <div class="catalog-product-details" id="product-details-{{ loop.index }}" hidden>
+                            <p><strong>Category:</strong> {{ product.category }}</p>
+                            <p><strong>Rating:</strong> {{ product.rating }} / 5 from {{ product.reviews }} reviews</p>
+                            <p><strong>About:</strong> {{ product.description }}</p>
+                        </div>
+                        <p class="catalog-purchase-notice" role="status" hidden>
+                            This is a demo listing. Purchases are not available yet.
+                        </p>
+                    </article>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+    <script>
+        document.querySelectorAll(".catalog-grid .product-card").forEach(function(card) {
+            const detailsButton = card.querySelector("[data-product-details]");
+            const details = card.querySelector(".catalog-product-details");
+            const buyButton = card.querySelector("[data-buy-now]");
+            const purchaseNotice = card.querySelector(".catalog-purchase-notice");
+
+            detailsButton.addEventListener("click", function() {
+                const isExpanded = detailsButton.getAttribute("aria-expanded") === "true";
+                details.hidden = isExpanded;
+                detailsButton.setAttribute("aria-expanded", String(!isExpanded));
+            });
+
+            buyButton.addEventListener("click", function() {
+                purchaseNotice.hidden = false;
+            });
+        });
+    </script>
+</body>
+</html>
