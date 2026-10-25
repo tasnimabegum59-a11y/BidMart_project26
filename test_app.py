@@ -652,6 +652,39 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertEqual(restored.status_code, 302)
         self.assertIn(b"Test Desk Light", self.client.get("/products").data)
 
+    def test_superadmin_dashboard_highlights_access_governance(self):
+        with bidmart.database() as connection:
+            superadmin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+                ("Root Account", self.email, generate_password_hash("secure-password"), 1),
+            )
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Managed Admin", "managed-admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+            connection.execute(
+                "INSERT INTO admin_role_requests (account_id, requested_role, status, requested_at) "
+                "VALUES (?, 'admin', 'pending', ?)",
+                (superadmin.lastrowid, 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = superadmin.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Root Account"
+
+        dashboard = self.client.get("/admin/dashboard")
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Superadmin control center", dashboard.data)
+        self.assertIn(b"Access governance", dashboard.data)
+        self.assertIn(b"Pending access requests", dashboard.data)
+        self.assertIn(b"Promote, demote, activate, or deactivate", dashboard.data)
+        self.assertIn(b'href="#accounts"', dashboard.data)
+        self.assertIn(b"Superadmin only", dashboard.data)
+
     def test_admin_fulfilment_requires_sequential_status_updates(self):
         self.start_checkout()
         checkout = self.client.get("/checkout")

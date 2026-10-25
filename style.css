@@ -1495,6 +1495,101 @@ a { /* সব link নির্বাচন করে */
     background: #f2f8f8;
 }
 
+.superadmin-control-panel {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+    gap: 20px;
+    margin-bottom: 22px;
+    padding: 22px;
+    border: 1px solid #d9d4f4;
+    border-radius: 16px;
+    background: linear-gradient(125deg, #f2f0ff, #fbfaff 70%);
+    box-shadow: 0 8px 24px rgba(63, 49, 126, 0.07);
+}
+
+.superadmin-control-copy {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.superadmin-control-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 11px;
+    background: #e4defd;
+    color: #51409a;
+    font-size: 19px;
+    font-weight: 800;
+}
+
+.superadmin-control-copy .eyebrow {
+    margin: 0 0 5px;
+    color: #6355a0;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+}
+
+.superadmin-control-copy h2 {
+    margin: 0 0 6px;
+    color: #332b61;
+    font-size: 20px;
+}
+
+.superadmin-control-copy p:last-child {
+    margin: 0;
+    color: #68627d;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.superadmin-control-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.superadmin-control-link {
+    display: grid;
+    min-height: 108px;
+    align-content: start;
+    gap: 4px;
+    padding: 13px 15px;
+    border: 1px solid #e4e0f2;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #51409a;
+    text-decoration: none;
+}
+
+.superadmin-control-link:hover,
+.superadmin-control-link:focus-visible {
+    border-color: #a99bdf;
+    background: #ffffff;
+    outline: none;
+}
+
+.superadmin-control-link span {
+    color: #6a6480;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.superadmin-control-link strong {
+    color: #332b61;
+    font-size: 24px;
+}
+
+.superadmin-control-link small {
+    color: #6a6480;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
 .admin-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1898,6 +1993,11 @@ a { /* সব link নির্বাচন করে */
         padding: 22px 18px;
     }
 
+    .superadmin-control-panel {
+        grid-template-columns: 1fr;
+        padding: 17px;
+    }
+
     .admin-dashboard-secondary-link {
         width: 100%;
         text-align: center;
@@ -1930,6 +2030,10 @@ a { /* সব link নির্বাচন করে */
     }
 
     .admin-product-form {
+        grid-template-columns: 1fr;
+    }
+
+    .superadmin-control-actions {
         grid-template-columns: 1fr;
     }
 

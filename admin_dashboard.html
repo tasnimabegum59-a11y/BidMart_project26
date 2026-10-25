@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Manage BidMart products, orders, auctions, and store operations.">
-    <title>Store dashboard | BidMart</title>
+    <title>{% if is_superadmin %}Superadmin control center{% else %}Store dashboard{% endif %} | BidMart</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
     <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
 </head>
@@ -14,14 +14,39 @@
     <main class="admin-dashboard page-container">
         <section class="admin-dashboard-hero">
             <div>
-                <p class="eyebrow">BIDMART OPERATIONS</p>
-                <h1>Store dashboard</h1>
-                <p>Manage your catalog, fulfil orders, and run auctions from one place.</p>
+                <p class="eyebrow">{% if is_superadmin %}SUPERADMIN CONTROL CENTER{% else %}BIDMART OPERATIONS{% endif %}</p>
+                <h1>{% if is_superadmin %}Superadmin control center{% else %}Store dashboard{% endif %}</h1>
+                <p>{% if is_superadmin %}Oversee staff access and requests, as well as all store operations.{% else %}Manage your catalog, fulfil orders, and run auctions from one place.{% endif %}</p>
             </div>
             {% if is_superadmin %}
             <a class="admin-dashboard-secondary-link" href="{{ url_for('admin_role_requests_page') }}">Review access requests</a>
             {% endif %}
         </section>
+
+        {% if is_superadmin %}
+        <section class="superadmin-control-panel" aria-labelledby="superadmin-controls-title">
+            <div class="superadmin-control-copy">
+                <span class="superadmin-control-icon" aria-hidden="true">✓</span>
+                <div>
+                    <p class="eyebrow">ELEVATED PERMISSIONS</p>
+                    <h2 id="superadmin-controls-title">Access governance</h2>
+                    <p>Only Superadmins can approve elevated-role requests or change other accounts' access.</p>
+                </div>
+            </div>
+            <div class="superadmin-control-actions">
+                <a class="superadmin-control-link" href="{{ url_for('admin_role_requests_page') }}">
+                    <span>Pending access requests</span>
+                    <strong>{{ pending_role_request_count }}</strong>
+                    <small>Review Admin and Superadmin applications →</small>
+                </a>
+                <a class="superadmin-control-link" href="#accounts">
+                    <span>Other accounts</span>
+                    <strong>{{ accounts|length }}</strong>
+                    <small>Promote, demote, activate, or deactivate →</small>
+                </a>
+            </div>
+        </section>
+        {% endif %}
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}
