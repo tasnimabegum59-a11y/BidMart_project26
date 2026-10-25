@@ -27,7 +27,13 @@
                 <p class="order-number">Order ID <strong>{{ order.order_number }}</strong></p>
                 {% if order.payment_method != "cod" %}
                 <p class="order-payment-notice">
-                    Online payment gateway is not configured. No payment has been taken and this order remains Pending / Unpaid. Do not send money separately.
+                    {% if order.payment_status == "paid" %}
+                    SSLCommerz verified your payment. Your order is now confirmed.
+                    {% elif order.payment_status == "failed" %}
+                    The payment was not completed. No successful payment is recorded; contact the store if your bank shows a debit.
+                    {% else %}
+                    Online payment is awaiting server verification. Do not submit a second payment while this status is pending.
+                    {% endif %}
                 </p>
                 {% else %}
                 <p class="order-confirmation-message">Your order was placed successfully. Payment is due when the delivery arrives.</p>

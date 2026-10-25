@@ -26,8 +26,20 @@
             </span>
             <span class="profile-trigger-copy">
                 <span class="profile-trigger-name">{{ current_user_name or current_user_email }}</span>
+                <span class="profile-trigger-role">{{ current_user_role|title }}</span>
             </span>
         </button>
+        {% if current_user_role == "superadmin" %}
+        <a class="superadmin-notifications" href="{{ url_for('admin_role_requests_page') }}"
+           aria-label="{{ pending_role_request_count }} pending access requests">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+            </svg>
+            {% if pending_role_request_count %}
+            <span class="notification-count" aria-hidden="true">{{ pending_role_request_count }}</span>
+            {% endif %}
+        </a>
+        {% endif %}
         {% endif %}
 
         <nav class="nav-links" aria-label="Main navigation">
@@ -68,7 +80,7 @@
             </span>
             <span class="dashboard-user-copy">
                 <strong id="dashboardTitle">{{ current_user_name or current_user_email }}</strong>
-                <span>Personal Dashboard</span>
+                <span>{% if current_user_role in ("admin", "superadmin") %}{{ current_user_role|title }} Dashboard{% else %}Personal Dashboard{% endif %}</span>
             </span>
             <button class="dashboard-close" id="dashboardClose" type="button" aria-label="Close dashboard">×</button>
         </div>
@@ -77,15 +89,30 @@
             <a class="dashboard-item{% if active_page == 'home' %} is-active{% endif %}" href="{{ url_for('home') }}#top"{% if active_page == "home" %} aria-current="page"{% endif %}>
                 <span aria-hidden="true">▦</span> Overview
             </a>
+            {% if current_user_role == "superadmin" %}
+            <a class="dashboard-item{% if active_page == 'role_requests' %} is-active{% endif %}" href="{{ url_for('admin_role_requests_page') }}">
+                <span aria-hidden="true">✓</span> Access requests
+                {% if pending_role_request_count %}
+                <small class="dashboard-request-count">{{ pending_role_request_count }} pending</small>
+                {% endif %}
+            </a>
+            {% endif %}
+            {% if current_user_role in ("admin", "superadmin") %}
+            <a class="dashboard-item{% if active_page == 'admin_dashboard' %} is-active{% endif %}" href="{{ url_for('admin_dashboard') }}">
+                <span aria-hidden="true">▤</span> Store dashboard
+            </a>
+            {% endif %}
             <span class="dashboard-item is-unavailable" aria-disabled="true">
                 <span aria-hidden="true">♙</span> My Profile <small>Coming soon</small>
             </span>
+            {% if current_user_role not in ("admin", "superadmin") %}
             <a class="dashboard-item{% if active_page == 'products' %} is-active{% endif %}" href="{{ url_for('products_page') }}"{% if active_page == "products" %} aria-current="page"{% endif %}>
                 <span aria-hidden="true">▣</span> My Products
             </a>
             <span class="dashboard-item is-unavailable" aria-disabled="true">
                 <span aria-hidden="true">▤</span> My Orders <small>Coming soon</small>
             </span>
+            {% endif %}
             <span class="dashboard-item is-unavailable" aria-disabled="true">
                 <span aria-hidden="true">↗</span> Analytics <small>Coming soon</small>
             </span>

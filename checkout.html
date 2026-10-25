@@ -119,20 +119,16 @@
                                 <span><strong>Cash on Delivery</strong><small>Pay when your order arrives · Recommended</small></span>
                             </label>
                             <label class="checkout-payment-option">
-                                <input type="radio" name="payment_method" value="bkash" {% if values.payment_method == "bkash" %}checked{% endif %}>
-                                <span><strong>Mobile banking — bKash</strong><small>Gateway setup required · no charge will be made</small></span>
-                            </label>
-                            <label class="checkout-payment-option">
-                                <input type="radio" name="payment_method" value="nagad" {% if values.payment_method == "nagad" %}checked{% endif %}>
-                                <span><strong>Mobile banking — Nagad</strong><small>Gateway setup required · no charge will be made</small></span>
-                            </label>
-                            <label class="checkout-payment-option">
-                                <input type="radio" name="payment_method" value="card" {% if values.payment_method == "card" %}checked{% endif %}>
-                                <span><strong>Card / online payment</strong><small>Gateway setup required · no charge will be made</small></span>
+                                <input type="radio" name="payment_method" value="card" {% if values.payment_method == "card" %}checked{% endif %} {% if not sslcommerz_ready %}disabled{% endif %}>
+                                <span><strong>SSLCommerz online payment</strong><small>{% if sslcommerz_ready %}Choose from available mobile banking, cards, and other methods on the secure payment page.{% else %}Unavailable until the store configures SSLCommerz and a public HTTPS address.{% endif %}</small></span>
                             </label>
                         </div>
                         <p class="checkout-gateway-note" id="gatewayNotice">
-                            Online payment is not connected yet. Selecting an online method creates a pending, unpaid order only; no payment is taken or marked paid.
+                            {% if sslcommerz_ready %}
+                            You will continue to SSLCommerz's secure hosted payment page. Your order is confirmed only after the server verifies payment.
+                            {% else %}
+                            Online payment is unavailable until SSLCommerz credentials and a public HTTPS APP_BASE_URL are configured. Cash on Delivery is available.
+                            {% endif %}
                         </p>
                     </section>
 
@@ -258,12 +254,12 @@
             method.addEventListener("change", function() {
                 checkoutSubmit.textContent = method.value === "cod"
                     ? "Place COD order"
-                    : "Create unpaid online order";
+                    : "Continue to SSLCommerz";
             });
         });
         const selectedPayment = checkoutForm.querySelector('input[name="payment_method"]:checked');
         if (selectedPayment && selectedPayment.value !== "cod") {
-            checkoutSubmit.textContent = "Create unpaid online order";
+            checkoutSubmit.textContent = "Continue to SSLCommerz";
         }
     </script>
 </body>

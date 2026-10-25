@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Manage BidMart products, orders, auctions, and store operations.">
+    <title>Store dashboard | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "admin_dashboard" %}
+    {% include "site_header.html" %}
+    <main class="admin-dashboard page-container">
+        <section class="admin-dashboard-hero">
+            <div>
+                <p class="eyebrow">BIDMART OPERATIONS</p>
+                <h1>Store dashboard</h1>
+                <p>Manage your catalog, fulfil orders, and run auctions from one place.</p>
+            </div>
+            {% if is_superadmin %}
+            <a class="admin-dashboard-secondary-link" href="{{ url_for('admin_role_requests_page') }}">Review access requests</a>
+            {% endif %}
+        </section>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <section class="admin-stats" aria-label="Store summary">
+            <article><span>Active products</span><strong>{{ stats.products }}</strong></article>
+            <article><span>Total orders</span><strong>{{ stats.orders }}</strong></article>
+            <article><span>Paid revenue</span><strong>৳ {{ "{:,}".format(stats.paid_revenue) }}</strong></article>
+            <article><span>Orders to review</span><strong>{{ stats.pending_orders }}</strong></article>
+        </section>
+
+        <nav class="admin-dashboard-nav" aria-label="Dashboard sections">
+            <a href="#products">Products</a>
+            <a href="#orders">Orders</a>
+            <a href="#auctions">Auctions</a>
+            {% if is_superadmin %}<a href="#accounts">Accounts</a>{% endif %}
+        </nav>
+
+        <section class="admin-dashboard-section" id="products">
+            <div class="admin-section-heading">
+                <div><p class="eyebrow">CATALOG</p><h2>Products & inventory</h2></div>
+                <span>{{ products|length }} products</span>
+            </div>
+            <details class="admin-create-panel">
+                <summary>Add a product</summary>
+                <form class="admin-product-form" action="{{ url_for('admin_create_product') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label>Product name<input name="name" maxlength="120" required></label>
+                    <label>Product slug<input name="slug" placeholder="wireless-headphones" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+                    <label>Category<input name="category" maxlength="80" required></label>
+                    <label>Store visibility<select name="show_in_catalog"><option value="1" selected>Main catalog</option><option value="0">Auction only</option></select></label>
+                    <label>Price (৳)<input name="price" type="number" min="1" required></label>
+                    <label>Previous price (৳)<input name="old_price" type="number" min="1"></label>
+                    <label>Stock<input name="stock" type="number" min="0" max="1000000" required></label>
+                    <label>Static image path<input name="image" placeholder="products/item.png"></label>
+                    <label>Icon (if no image)<input name="icon" maxlength="8" placeholder="📦"></label>
+                    <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required></textarea></label>
+                    <label class="admin-field-wide">Features, comma separated<input name="features" placeholder="Fast delivery, 1-year warranty"></label>
+                    <div class="admin-form-actions"><button class="admin-action-primary" type="submit">Publish product</button></div>
+                </form>
+            </details>
+            <div class="admin-product-list">
+                {% for product in products %}
+                <details class="admin-product-card" id="product-{{ product.slug }}">
+                    <summary>
+                        <span class="admin-product-summary-copy">
+                            <strong>{{ product.name }}</strong>
+                            <small>{{ product.category }} · ৳ {{ "{:,}".format(product.price) }} · Stock {{ product.stock or 0 }}</small>
+                        </span>
+                        {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
+                    </summary>
+                    <form class="admin-product-form" action="{{ url_for('admin_update_product', slug=product.slug) }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <label>Product name<input name="name" maxlength="120" value="{{ product.name }}" required></label>
+                        <label>Product slug<input name="slug" value="{{ product.slug }}" readonly></label>
+                        <label>Category<input name="category" maxlength="80" value="{{ product.category }}" required></label>
+                        <label>Store visibility<select name="show_in_catalog"><option value="1" {% if product.show_in_catalog %}selected{% endif %}>Main catalog</option><option value="0" {% if not product.show_in_catalog %}selected{% endif %}>Auction only</option></select></label>
+                        <label>Price (৳)<input name="price" type="number" min="1" value="{{ product.price }}" required></label>
+                        <label>Previous price (৳)<input name="old_price" type="number" min="1" value="{{ product.old_price or '' }}"></label>
+                        <label>Stock<input name="stock" type="number" min="0" max="1000000" value="{{ product.stock or 0 }}" required></label>
+                        <label>Static image path<input name="image" value="{{ product.image or '' }}"></label>
+                        <label>Icon (if no image)<input name="icon" maxlength="8" value="{{ product.icon or '' }}"></label>
+                        <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required>{{ product.description }}</textarea></label>
+                        <label class="admin-field-wide">Features, comma separated<input name="features" value="{{ product.features_text }}"></label>
+                        <div class="admin-form-actions">
+                            <button class="admin-action-primary" type="submit">Save product</button>
+                        </div>
+                    </form>
+                    <form class="admin-inline-action" action="{{ url_for('admin_set_product_status', slug=product.slug, action='archive' if product.is_active else 'restore') }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button class="admin-action-secondary" type="submit">{{ "Archive product" if product.is_active else "Restore product" }}</button>
+                    </form>
+                </details>
+                {% else %}
+                <p class="admin-empty-note">No products have been added yet.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="admin-dashboard-section" id="orders">
+            <div class="admin-section-heading">
+                <div><p class="eyebrow">FULFILMENT</p><h2>Recent orders</h2></div>
+                <span>Latest 100</span>
+            </div>
+            <div class="admin-table-wrap">
+                <table class="admin-table">
+                    <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Delivery</th><th>Update</th></tr></thead>
+                    <tbody>
+                    {% for order in orders %}
+                    <tr>
+                        <td><strong>{{ order.order_number }}</strong><small>{{ order.created_at|datetime }}</small></td>
+                        <td>
+                            {{ order.customer_name }}<small>{{ order.customer_phone }}</small>
+                            <details class="admin-order-detail">
+                                <summary>Delivery details</summary>
+                                <small>{{ order.customer_email or "No email provided" }}<br>{{ order.address }}, {{ order.district }}, {{ order.division }}{% if order.postal_code %} {{ order.postal_code }}{% endif %}{% if order.delivery_note %}<br>Note: {{ order.delivery_note }}{% endif %}<br>Items: {{ order.item_summary or "No items" }}</small>
+                            </details>
+                        </td>
+                        <td>৳ {{ "{:,}".format(order.total) }}</td>
+                        <td>{{ order.payment_status|title }}<small>{{ {"cod": "Cash on Delivery", "bkash": "SSLCommerz · bKash", "nagad": "SSLCommerz · Nagad", "card": "SSLCommerz · online"}[order.payment_method] }}</small></td>
+                        <td><span class="admin-status-badge">{{ order.order_status|title }}</span></td>
+                        <td>
+                            {% set next_status = {"confirmed": "processing", "processing": "shipped", "shipped": "delivered"}.get(order.order_status) %}
+                            {% if next_status and (order.payment_method == "cod" or order.payment_status == "paid") %}
+                            <form action="{{ url_for('admin_update_order_status', order_id=order.id) }}" method="post">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="order_status" value="{{ next_status }}">
+                                <button class="admin-action-primary admin-action-small" type="submit">Mark {{ next_status }}</button>
+                            </form>
+                            {% elif order.payment_method != "cod" and order.payment_status != "paid" %}
+                            <small>Waiting for payment</small>
+                            {% else %}<small>Complete</small>{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="admin-table-empty">No orders yet. New orders will appear here.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-dashboard-section" id="auctions">
+            <div class="admin-section-heading">
+                <div><p class="eyebrow">LIVE SALES</p><h2>Auction listings</h2></div>
+                <span>{{ auctions|selectattr("is_active")|list|length }} active</span>
+            </div>
+            <details class="admin-create-panel">
+                <summary>Create an auction</summary>
+                <form class="admin-product-form admin-auction-form" action="{{ url_for('admin_create_auction') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="admin-field-wide">Product
+                        <select name="product_slug" required>
+                            <option value="">Choose an active product</option>
+                            {% for product in auction_products %}<option value="{{ product.slug }}">{{ product.name }}</option>{% endfor %}
+                        </select>
+                    </label>
+                    <label>Starting bid (৳)<input name="starting_bid" type="number" min="1" required></label>
+                    <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" value="100" required></label>
+                    <label>Duration (days)<input name="duration_days" type="number" min="1" max="90" value="7" required></label>
+                    <div class="admin-form-actions"><button class="admin-action-primary" type="submit" {% if not auction_products %}disabled{% endif %}>Publish auction</button></div>
+                </form>
+                {% if not auction_products %}<p class="admin-help-text">Add a new product first; each product can have one auction listing.</p>{% endif %}
+            </details>
+            <div class="admin-auction-list">
+                {% for auction in auctions %}
+                <article class="admin-auction-row">
+                    <div><strong>{{ auction.name }}</strong><small>{{ auction.category }} · Current bid ৳ {{ "{:,}".format(auction.current_bid) }} · Ends {{ auction.ends_at|datetime }}</small></div>
+                    {% if auction.is_active %}
+                    <form action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button class="admin-action-secondary" type="submit">Close auction</button>
+                    </form>
+                    {% else %}<span class="admin-status-badge is-inactive">Closed</span>{% endif %}
+                </article>
+                {% else %}<p class="admin-empty-note">No auctions have been created yet.</p>{% endfor %}
+            </div>
+        </section>
+
+        {% if is_superadmin %}
+        <section class="admin-dashboard-section" id="accounts">
+            <div class="admin-section-heading">
+                <div><p class="eyebrow">TEAM ACCESS</p><h2>Accounts</h2></div>
+                <span>Superadmin only</span>
+            </div>
+            <div class="admin-account-list">
+                {% for account in accounts %}
+                <article class="admin-account-row">
+                    <div><strong>{{ account.full_name }}</strong><small>{{ account.email }} · {{ account.role|title }}{% if not account.is_verified %} · Email unverified{% endif %}</small></div>
+                    <form action="{{ url_for('superadmin_update_account', account_id=account.id) }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <select name="action" aria-label="Change access for {{ account.full_name }}">
+                            {% if account.role == "admin" %}<option value="make_user">Change to User</option>{% else %}<option value="make_admin">Promote to Admin</option>{% endif %}
+                            {% if account.is_active %}<option value="deactivate">Deactivate</option>{% else %}<option value="activate">Activate</option>{% endif %}
+                        </select>
+                        <button class="admin-action-secondary" type="submit">Apply</button>
+                    </form>
+                </article>
+                {% else %}<p class="admin-empty-note">No other accounts to manage.</p>{% endfor %}
+            </div>
+        </section>
+        {% endif %}
+    </main>
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+    <script>
+        const targetedProduct = document.getElementById(window.location.hash.slice(1));
+        if (targetedProduct && targetedProduct.matches("details.admin-product-card")) {
+            targetedProduct.open = true;
+        }
+    </script>
+</body>
+</html>

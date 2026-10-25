@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin requests | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "role_requests" %}
+    {% include "site_header.html" %}
+    <main class="page-container role-requests-page">
+        <section class="role-requests-hero">
+            <div class="role-requests-heading">
+                <span class="role-requests-icon" aria-hidden="true">✓</span>
+                <div>
+                    <p class="eyebrow">SUPERADMIN WORKSPACE</p>
+                    <h1>Access requests</h1>
+                    <p>Review elevated-role applications. Approved applicants receive a verification email before their role is activated.</p>
+                </div>
+            </div>
+            <span class="role-requests-total">{{ requests|length }} pending</span>
+        </section>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        {% if requests %}
+        <div class="role-request-list">
+            {% for applicant in requests %}
+            <section class="role-request-card">
+                <div class="role-request-card-heading">
+                    <span class="role-request-avatar" aria-hidden="true">{{ applicant.full_name[:1]|upper }}</span>
+                    <div class="role-request-applicant">
+                        <h2>{{ applicant.full_name }}</h2>
+                        <p>{{ applicant.email }}</p>
+                    </div>
+                    <span class="role-request-badge role-request-badge-{{ applicant.requested_role }}">{{ applicant.requested_role|title }}</span>
+                </div>
+                <div class="role-request-details">
+                    <span>Submitted {{ applicant.requested_at|datetime }}</span>
+                    <span>Email verification required after approval</span>
+                </div>
+                <div class="role-request-actions">
+                    <form action="{{ url_for('review_admin_request', account_id=applicant.account_id, action='approve') }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="role-request-approve">Approve {{ applicant.requested_role|title }}</button>
+                    </form>
+                    <form action="{{ url_for('review_admin_request', account_id=applicant.account_id, action='reject') }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="role-request-reject">Reject request</button>
+                    </form>
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+        {% else %}
+        <section class="role-requests-empty">
+            <span class="role-requests-empty-icon" aria-hidden="true">✓</span>
+            <h2>You're all caught up</h2>
+            <p>No pending access requests right now. New applications will appear here.</p>
+        </section>
+        {% endif %}
+    </main>
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+</body>
+</html>

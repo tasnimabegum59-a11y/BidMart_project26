@@ -4,6 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% if registration_request and registration_request.status == "pending" %}
+    <meta http-equiv="refresh" content="5">
+    {% endif %}
     <title>BidMart | Registration</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
 
@@ -22,7 +25,7 @@
         <div class="page-heading">
             <p class="eyebrow">JOIN BIDMART</p>
             <h1>Create Your Account</h1>
-            <p>Fill in your information and select your account role.</p>
+            <p>Create a User account or request an elevated role. Superadmin approval is required for Admin and Superadmin accounts.</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -31,6 +34,28 @@
             {% endfor %}
         {% endwith %}
 
+        {% if registration_request %}
+        <section class="register-card" aria-live="polite">
+            <h2>{{ registration_request.requested_role|title }} account request</h2>
+            <p>Account email: <strong>{{ registration_request.email }}</strong></p>
+            {% if registration_request.status == "pending" %}
+            <p>Your request is waiting for Superadmin approval. This page will update automatically when it is reviewed.</p>
+            {% elif registration_request.status == "approved" and not registration_request.is_verified %}
+            <p>Your request was approved. Create your account to receive the email verification link.</p>
+            <form action="{{ url_for('send_approved_role_verification') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="register-button">
+                    {% if registration_request.verification_token_hash %}Resend verification link{% else %}Create Account{% endif %}
+                </button>
+            </form>
+            {% elif registration_request.is_verified %}
+            <p>Your email is verified and your {{ registration_request.requested_role|title }} role is active.</p>
+            <a class="checkout-submit" href="{{ url_for('login_page') }}">Log in</a>
+            {% else %}
+            <p>This access request was rejected. Contact BidMart support if you think this was a mistake.</p>
+            {% endif %}
+        </section>
+        {% else %}
         <!-- এখানে একটি মাত্র Registration Card থাকবে -->
         <div class="registration-grid single-registration">
 
@@ -75,11 +100,15 @@
                         autocomplete="tel"
                     >
 
-                    <!-- Account Role নির্বাচন -->
                     <label for="role">Account Role</label>
-                    <select id="role" name="role">
+                    <select id="role" name="role" aria-describedby="roleHelp">
                         <option value="user" selected>User</option>
+                        <option value="admin">Admin (requires Superadmin approval)</option>
+                        <option value="superadmin">Superadmin (requires Superadmin approval)</option>
                     </select>
+                    <p class="form-note" id="roleHelp" aria-live="polite">
+                        Create a User account. Verify your email to activate it.
+                    </p>
 
                     <!-- Password -->
                     <label for="password">Password</label>
@@ -106,8 +135,8 @@
                     >
 
                     <!-- Submit Button -->
-                    <button type="submit" class="register-button">
-                        Create Account
+                    <button type="submit" class="register-button" id="registerSubmitButton">
+                        Create User Account
                     </button>
 
                 </form>
@@ -125,6 +154,7 @@
 
             </section>
         </div>
+        {% endif %}
     </main>
 
     <!-- Footer -->
@@ -135,6 +165,26 @@
 
     <!-- Role অনুযায়ী অতিরিক্ত ফিল্ড দেখানোর JavaScript -->
     <script>
+        const roleSelect = document.getElementById("role");
+        const roleHelp = document.getElementById("roleHelp");
+        const registerSubmitButton = document.getElementById("registerSubmitButton");
+
+        function updateRoleInstructions() {
+            if (roleSelect.value === "admin" || roleSelect.value === "superadmin") {
+                const roleName = roleSelect.value === "admin" ? "Admin" : "Superadmin";
+                registerSubmitButton.textContent = `Request ${roleName} approval`;
+                roleHelp.textContent =
+                    `Your ${roleName} request will be sent to the Superadmin. ` +
+                    "You will receive the email verification link after approval.";
+            } else {
+                registerSubmitButton.textContent = "Create User Account";
+                roleHelp.textContent = "Create a User account. Verify your email to activate it.";
+            }
+        }
+
+        roleSelect.addEventListener("change", updateRoleInstructions);
+        updateRoleInstructions();
+
         // Password দুটো একই কি না, তা পরীক্ষা করা
         document.getElementById("registerForm").addEventListener("submit", function(event) {
             const password = document.getElementById("password").value;

@@ -57,6 +57,52 @@ class AuthenticationFlowTests(unittest.TestCase):
         data.update(overrides)
         return data
 
+    def test_initial_superadmin_can_only_be_bootstrapped_once(self):
+        bidmart.create_initial_superadmin(" First Admin ", "ROOT@example.invalid", "secure-root-password")
+
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT full_name, email, role, is_verified, password_hash FROM accounts"
+            ).fetchone()
+        self.assertEqual(account["full_name"], "First Admin")
+        self.assertEqual(account["email"], "root@example.invalid")
+        self.assertEqual(account["role"], "superadmin")
+        self.assertEqual(account["is_verified"], 1)
+        self.assertNotEqual(account["password_hash"], "secure-root-password")
+        with self.assertRaisesRegex(ValueError, "A Superadmin already exists"):
+            bidmart.create_initial_superadmin(
+                "Second Admin", "second-root@example.invalid", "secure-root-password"
+            )
+
+    def test_initial_superadmin_bootstrap_upgrades_existing_verified_user(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Existing User", self.email, generate_password_hash("current-user-password"), 1),
+            )
+
+        with self.assertRaisesRegex(ValueError, "password does not match"):
+            bidmart.create_initial_superadmin(
+                "Existing User", self.email, "incorrect-current-password"
+            )
+        with bidmart.database() as connection:
+            role = connection.execute(
+                "SELECT role FROM accounts WHERE email = ?", (self.email,)
+            ).fetchone()["role"]
+        self.assertEqual(role, "user")
+
+        result = bidmart.create_initial_superadmin(
+            "Existing User", self.email, "current-user-password"
+        )
+        self.assertEqual(result, "upgraded")
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT role, password_hash FROM accounts WHERE email = ?", (self.email,)
+            ).fetchone()
+        self.assertEqual(account["role"], "superadmin")
+        self.assertTrue(bidmart.check_password_hash(account["password_hash"], "current-user-password"))
+
     def test_registration_verification_and_login(self):
         with patch.object(bidmart, "send_verification_email") as send_email:
             response = self.client.get("/register.html")
@@ -104,6 +150,7 @@ class AuthenticationFlowTests(unittest.TestCase):
             "password": "secure-test-password",
         })
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.get("/superadmin/admin-requests").status_code, 403)
         home = self.client.get("/")
         self.assertIn(b"Test Account", home.data)
         self.assertIn(b'/static/bidmart-logo.png', home.data)
@@ -208,6 +255,8 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
+        self.assertNotIn(b"Manage products", response.data)
+        self.assertNotIn(b"Manage this product", response.data)
 
     def test_product_details_pages_show_complete_demo_listing_information(self):
         for product in bidmart.PRODUCT_CATALOG:
@@ -293,28 +342,91 @@ class AuthenticationFlowTests(unittest.TestCase):
             ).fetchone()["stock"]
         self.assertEqual(stock, 8)
 
-    def test_online_checkout_is_pending_unpaid_and_never_claims_payment(self):
+    def test_online_checkout_is_blocked_until_sslcommerz_is_configured(self):
         self.start_checkout()
         checkout = self.client.get("/checkout")
         response = self.client.post(
             "/checkout",
-            data=self.checkout_form(self.csrf_from(checkout), payment_method="bkash"),
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="card"),
         )
-        self.assertEqual(response.status_code, 302)
-        confirmation = self.client.get(response.headers["Location"])
-        self.assertEqual(confirmation.status_code, 200)
-        self.assertIn(b"gateway is not configured", confirmation.data)
-        self.assertIn(b"Pending / Unpaid", confirmation.data)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"Online payment is not configured yet", response.data)
 
         with bidmart.database() as connection:
-            order = connection.execute(
-                "SELECT order_status, payment_status, payment_method FROM orders"
-            ).fetchone()
+            order_count = connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
             stock = connection.execute(
                 "SELECT stock FROM product_inventory WHERE product_slug = 'casual-sneakers'"
             ).fetchone()["stock"]
-        self.assertEqual(tuple(order), ("pending", "unpaid", "bkash"))
+        self.assertEqual(order_count, 0)
         self.assertEqual(stock, 10)
+
+    def test_sslcommerz_checkout_verifies_callback_before_marking_paid(self):
+        self.start_checkout()
+        checkout = self.client.get("/checkout")
+        csrf = self.csrf_from(checkout)
+        with patch.dict(os.environ, {
+            "APP_BASE_URL": "https://shop.example.invalid",
+            "SSLCOMMERZ_STORE_ID": "test-store",
+            "SSLCOMMERZ_STORE_PASSWORD": "test-password",
+            "SSLCOMMERZ_IS_SANDBOX": "true",
+        }), patch.object(
+            bidmart, "initiate_sslcommerz_payment", return_value="https://sandbox.sslcommerz.com/gwprocess/test"
+        ) as initiate_payment:
+            response = self.client.post(
+                "/checkout",
+                data=self.checkout_form(csrf, payment_method="card"),
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(
+                response.headers["Location"],
+                "https://sandbox.sslcommerz.com/gwprocess/test",
+            )
+            initiate_payment.assert_called_once()
+            with bidmart.database() as connection:
+                order = connection.execute(
+                    "SELECT id, order_number, order_status, payment_status, stock_reserved FROM orders"
+                ).fetchone()
+                stock = connection.execute(
+                    "SELECT stock FROM product_inventory WHERE product_slug = 'casual-sneakers'"
+                ).fetchone()["stock"]
+            self.assertEqual(tuple(order)[2:], ("pending", "unpaid", 1))
+            self.assertEqual(stock, 9)
+
+            with patch.object(bidmart, "validate_sslcommerz_payment", return_value=True):
+                callback = self.client.post(
+                    "/payment/sslcommerz/success",
+                    data={"tran_id": order["order_number"], "val_id": "validated-test-token"},
+                )
+            self.assertEqual(callback.status_code, 302)
+            result = self.client.get(callback.headers["Location"])
+            self.assertIn(b"Payment verified", result.data)
+
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT order_status, payment_status, stock_reserved FROM orders"
+            ).fetchone()
+        self.assertEqual(tuple(order), ("confirmed", "paid", 0))
+
+    def test_sslcommerz_validation_checks_transaction_amount_currency_and_risk(self):
+        order = {"order_number": "BM-0123456789ABCDEF", "total": 2170}
+        valid_response = {
+            "status": "VALID",
+            "tran_id": order["order_number"],
+            "amount": "2170.00",
+            "currency": "BDT",
+            "risk_level": "0",
+        }
+        with patch.dict(os.environ, {
+            "APP_BASE_URL": "https://shop.example.invalid",
+            "SSLCOMMERZ_STORE_ID": "test-store",
+            "SSLCOMMERZ_STORE_PASSWORD": "test-password",
+        }), patch.object(bidmart, "sslcommerz_api_request", return_value=valid_response) as api_request:
+            self.assertTrue(bidmart.validate_sslcommerz_payment(order, "test-validation-id"))
+            self.assertEqual(api_request.call_args.kwargs["method"], "GET")
+            api_request.return_value = {**valid_response, "amount": "1.00"}
+            self.assertFalse(bidmart.validate_sslcommerz_payment(order, "wrong-amount"))
+            api_request.return_value = {**valid_response, "risk_level": "1"}
+            self.assertFalse(bidmart.validate_sslcommerz_payment(order, "risky-payment"))
 
     def test_checkout_rejects_invalid_shipping_quantity_and_coupon_without_order(self):
         self.start_checkout()
@@ -412,9 +524,44 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(b'class="container navbar"', response.data)
                 self.assertIn(b'id="profileTrigger"', response.data)
+                self.assertIn(b'class="profile-trigger-role">User</span>', response.data)
+                self.assertNotIn(b'class="superadmin-notifications"', response.data)
                 self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
                 self.assertIn(active_link, response.data)
                 self.assertIn(b'class="dashboard-overlay" id="dashboardDrawer"', response.data)
+
+    def test_superadmin_header_shows_pending_access_request_notification(self):
+        with bidmart.database() as connection:
+            superadmin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+                ("Root Account", self.email, generate_password_hash("secure-password"), 1),
+            )
+            for index, requested_role in enumerate(("admin", "superadmin")):
+                applicant = connection.execute(
+                    "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                    "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                    (f"Applicant {index}", f"applicant{index}@example.invalid",
+                     generate_password_hash("secure-password"), 1),
+                )
+                connection.execute(
+                    "INSERT INTO admin_role_requests (account_id, requested_role, status, requested_at) "
+                    "VALUES (?, ?, 'pending', ?)",
+                    (applicant.lastrowid, requested_role, 1),
+                )
+        with self.client.session_transaction() as session:
+            session["user_id"] = superadmin.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Root Account"
+
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'class="profile-trigger-role">Superadmin</span>', response.data)
+        self.assertIn(b'aria-label="2 pending access requests"', response.data)
+        self.assertIn(b'class="notification-count" aria-hidden="true">2</span>', response.data)
+        self.assertIn(b'Superadmin Dashboard', response.data)
+        self.assertIn(b'Access requests', response.data)
+        self.assertIn(b'2 pending', response.data)
 
     def test_account_pages_use_the_shared_navigation(self):
         for path in ("/login.html", "/register.html", "/forgot-password"):
@@ -425,8 +572,191 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'<nav class="nav-links" aria-label="Main navigation">', response.data)
                 self.assertIn(b'href="/auctions">Auctions</a>', response.data)
 
+    def test_admin_dashboard_manages_products_inventory_and_auctions(self):
+        with bidmart.database() as connection:
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", self.email, generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Store Admin"
+
+        dashboard = self.client.get("/admin/dashboard")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Products & inventory", dashboard.data)
+        self.assertNotIn(b'id="accounts"', dashboard.data)
+        self.assertNotIn(b"My Products", dashboard.data)
+        self.assertNotIn(b"My Orders", dashboard.data)
+        product_catalog = self.client.get("/products")
+        self.assertIn(b"Manage products", product_catalog.data)
+        self.assertIn(b"Manage this product", product_catalog.data)
+        self.assertIn(b"#product-casual-sneakers", product_catalog.data)
+        auction_catalog = self.client.get("/auctions")
+        self.assertIn(b"Manage auctions", auction_catalog.data)
+        self.assertIn(b"Close auction", auction_catalog.data)
+        csrf = self.csrf_from(dashboard)
+        product_values = {
+            "csrf_token": csrf,
+            "name": "Test Desk Light",
+            "slug": "test-desk-light",
+            "category": "Home",
+            "description": "A test product for dashboard management.",
+            "image": "products/digital-camera.svg",
+            "icon": "",
+            "price": "1500",
+            "old_price": "1800",
+            "stock": "5",
+            "features": "Compact, Bright",
+        }
+        created = self.client.post("/admin/products/create", data=product_values)
+        self.assertEqual(created.status_code, 302)
+        self.assertIn(b"Test Desk Light", self.client.get("/products").data)
+
+        update_values = {**product_values, "price": "1400", "stock": "4"}
+        updated = self.client.post("/admin/products/test-desk-light/update", data=update_values)
+        self.assertEqual(updated.status_code, 302)
+        self.assertEqual(bidmart.get_product("test-desk-light")["price"], 1400)
+        with bidmart.database() as connection:
+            stock = connection.execute(
+                "SELECT stock FROM product_inventory WHERE product_slug = 'test-desk-light'"
+            ).fetchone()["stock"]
+        self.assertEqual(stock, 4)
+
+        created_auction = self.client.post("/admin/auctions/create", data={
+            "csrf_token": csrf,
+            "product_slug": "test-desk-light",
+            "starting_bid": "1000",
+            "minimum_increment": "100",
+            "duration_days": "3",
+        })
+        self.assertEqual(created_auction.status_code, 302)
+        self.assertIn(b"Test Desk Light", self.client.get("/auctions").data)
+        closed_auction = self.client.post(
+            "/admin/auctions/test-desk-light/close", data={"csrf_token": csrf}
+        )
+        self.assertEqual(closed_auction.status_code, 302)
+        self.assertEqual(self.client.get("/auction/test-desk-light").status_code, 404)
+
+        archived = self.client.post(
+            "/admin/products/test-desk-light/archive", data={"csrf_token": csrf}
+        )
+        self.assertEqual(archived.status_code, 302)
+        self.assertNotIn(b"Test Desk Light", self.client.get("/products").data)
+        self.assertEqual(self.client.get("/products/test-desk-light").status_code, 404)
+        restored = self.client.post(
+            "/admin/products/test-desk-light/restore", data={"csrf_token": csrf}
+        )
+        self.assertEqual(restored.status_code, 302)
+        self.assertIn(b"Test Desk Light", self.client.get("/products").data)
+
+    def test_admin_fulfilment_requires_sequential_status_updates(self):
+        self.start_checkout()
+        checkout = self.client.get("/checkout")
+        order_response = self.client.post(
+            "/checkout", data=self.checkout_form(self.csrf_from(checkout), payment_method="cod")
+        )
+        confirmation = self.client.get(order_response.headers["Location"])
+        with bidmart.database() as connection:
+            order_id = connection.execute("SELECT id FROM orders").fetchone()["id"]
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", "admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = "admin@example.invalid"
+            session["user_name"] = "Store Admin"
+        dashboard = self.client.get("/admin/dashboard")
+        csrf = self.csrf_from(dashboard)
+        invalid_jump = self.client.post(
+            f"/admin/orders/{order_id}/status",
+            data={"csrf_token": csrf, "order_status": "shipped"},
+        )
+        self.assertEqual(invalid_jump.status_code, 302)
+        with bidmart.database() as connection:
+            status = connection.execute(
+                "SELECT order_status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()["order_status"]
+        self.assertEqual(status, "confirmed")
+
+        for status in ("processing", "shipped", "delivered"):
+            response = self.client.post(
+                f"/admin/orders/{order_id}/status",
+                data={"csrf_token": csrf, "order_status": status},
+            )
+            self.assertEqual(response.status_code, 302)
+        with bidmart.database() as connection:
+            status = connection.execute(
+                "SELECT order_status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()["order_status"]
+        self.assertEqual(status, "delivered")
+
+    def test_regular_user_cannot_access_admin_dashboard(self):
+        with bidmart.database() as connection:
+            user = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Regular User", self.email, generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = user.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Regular User"
+        self.assertEqual(self.client.get("/admin/dashboard").status_code, 403)
+
+    def test_superadmin_can_change_staff_access_and_deactivation_revokes_session(self):
+        with bidmart.database() as connection:
+            superadmin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+                ("Root Account", "root@example.invalid",
+                 generate_password_hash("secure-root-password"), 1),
+            )
+            account = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Managed Account", self.email, generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = superadmin.lastrowid
+            session["user_email"] = "root@example.invalid"
+            session["user_name"] = "Root Account"
+
+        dashboard = self.client.get("/admin/dashboard")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b'id="accounts"', dashboard.data)
+        csrf = self.csrf_from(dashboard)
+        promoted = self.client.post(
+            f"/superadmin/accounts/{account.lastrowid}/update",
+            data={"csrf_token": csrf, "action": "make_admin"},
+        )
+        self.assertEqual(promoted.status_code, 302)
+        with bidmart.database() as connection:
+            role = connection.execute(
+                "SELECT role FROM accounts WHERE id = ?", (account.lastrowid,)
+            ).fetchone()["role"]
+        self.assertEqual(role, "admin")
+
+        deactivated = self.client.post(
+            f"/superadmin/accounts/{account.lastrowid}/update",
+            data={"csrf_token": csrf, "action": "deactivate"},
+        )
+        self.assertEqual(deactivated.status_code, 302)
+        with self.client.session_transaction() as session:
+            session["user_id"] = account.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Managed Account"
+        self.assertEqual(self.client.get("/admin/dashboard").status_code, 403)
+        with self.client.session_transaction() as session:
+            self.assertNotIn("user_id", session)
+
     def test_unverified_account_cannot_login(self):
-        with patch.object(bidmart, "send_verification_email"):
+        with patch.object(bidmart, "send_verification_email") as send_email:
             response = self.client.get("/register.html")
             self.client.post("/register", data={
                 "csrf_token": self.csrf_from(response),
@@ -437,6 +767,7 @@ class AuthenticationFlowTests(unittest.TestCase):
                 "password": "secure-test-password",
                 "confirm_password": "secure-test-password",
             })
+            verification_token = send_email.call_args.args[1]
 
         response = self.client.get("/login.html")
         login_response = self.client.post("/login", data={
@@ -448,21 +779,225 @@ class AuthenticationFlowTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             self.assertNotIn("user_id", session)
 
-    def test_privileged_registration_is_rejected(self):
-        response = self.client.get("/register.html")
-        post_response = self.client.post("/register", data={
-            "csrf_token": self.csrf_from(response),
-            "full_name": "Admin Applicant",
-            "email": self.email,
-            "phone": "5550100",
-            "role": "admin",
-            "password": "secure-test-password",
-            "confirm_password": "secure-test-password",
-        })
+    def test_admin_registration_requires_verified_email_and_superadmin_approval(self):
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            response = self.client.get("/register.html")
+            self.assertIn(b'value="admin"', response.data)
+            self.assertIn(b'value="user"', response.data)
+            self.assertIn(b'value="superadmin"', response.data)
+            self.assertIn(b'id="registerSubmitButton"', response.data)
+            self.assertIn(b"Request ${roleName} approval", response.data)
+            post_response = self.client.post("/register", data={
+                "csrf_token": self.csrf_from(response),
+                "full_name": "Admin Applicant",
+                "email": self.email,
+                "phone": "5550100",
+                "role": "admin",
+                "password": "secure-test-password",
+                "confirm_password": "secure-test-password",
+            })
+
         self.assertEqual(post_response.status_code, 302)
+        send_email.assert_not_called()
+        self.assertTrue(post_response.headers["Location"].endswith("/register.html"))
+        applicant_page = self.client.get("/register.html")
+        self.assertIn(b"Your request is waiting for Superadmin approval", applicant_page.data)
+        self.assertIn(self.email.encode(), applicant_page.data)
+        self.assertIn(b'<meta http-equiv="refresh" content="5">', applicant_page.data)
+        self.assertNotIn(b"Already requested Admin or Superadmin access?", applicant_page.data)
         with bidmart.database() as connection:
-            account_count = connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
-        self.assertEqual(account_count, 0)
+            applicant = connection.execute(
+                "SELECT id, role, is_verified, verification_token_hash FROM accounts WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT status FROM admin_role_requests WHERE account_id = ?", (applicant["id"],)
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'superadmin', 1, ?)",
+                ("Superadmin", "root@example.invalid", "", generate_password_hash("secure-root-password"), 1),
+            )
+            superadmin_id = connection.execute(
+                "SELECT id FROM accounts WHERE email = 'root@example.invalid'"
+            ).fetchone()["id"]
+        self.assertEqual(applicant["role"], "user")
+        self.assertEqual(applicant["is_verified"], 0)
+        self.assertIsNone(applicant["verification_token_hash"])
+        self.assertEqual(request_row["status"], "pending")
+        self.assertEqual(self.client.get("/superadmin/admin-requests").status_code, 403)
+
+        early_token = "must-wait-for-approval"
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE accounts SET verification_token_hash = ?, verification_expires_at = ? WHERE id = ?",
+                (bidmart.hash_token(early_token), int(time.time()) + 1800, applicant["id"]),
+            )
+        self.client.get(f"/verify/{early_token}")
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT is_verified, verification_token_hash FROM accounts WHERE id = ?",
+                (applicant["id"],),
+            ).fetchone()
+        self.assertEqual(account["is_verified"], 0)
+        self.assertEqual(account["verification_token_hash"], bidmart.hash_token(early_token))
+        with patch.dict(os.environ, {
+            "SMTP_USERNAME": "sender@example.invalid",
+            "SMTP_PASSWORD": "test-password",
+            "SMTP_FROM": "sender@example.invalid",
+        }), patch.object(bidmart, "issue_verification") as resend_verification:
+            self.client.post("/resend-verification", data={
+                "csrf_token": self.csrf_from(response),
+                "email": self.email,
+            })
+        resend_verification.assert_not_called()
+
+        superadmin_client = bidmart.app.test_client()
+        with superadmin_client.session_transaction() as session:
+            session["user_id"] = superadmin_id
+            session["user_role"] = "superadmin"
+        requests_page = superadmin_client.get("/superadmin/admin-requests")
+        self.assertEqual(requests_page.status_code, 200)
+        self.assertIn(self.email.encode(), requests_page.data)
+        self.assertIn(b'aria-label="Open dashboard for Superadmin"', requests_page.data)
+        self.assertNotIn(b'class="login-btn"', requests_page.data)
+        self.assertNotIn(b'class="register-btn"', requests_page.data)
+        self.assertIn(b'role-requests-page', requests_page.data)
+        self.assertIn(b'class="role-request-card"', requests_page.data)
+        self.assertIn(b'Approve Admin', requests_page.data)
+
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            with superadmin_client.session_transaction() as session:
+                csrf_token = session["csrf_token"]
+            response = superadmin_client.post(
+                f"/superadmin/admin-requests/{applicant['id']}/approve",
+                data={"csrf_token": csrf_token},
+            )
+            send_email.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT role, is_verified FROM accounts WHERE id = ?", (applicant["id"],)
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT status, reviewed_by FROM admin_role_requests WHERE account_id = ?",
+                (applicant["id"],),
+            ).fetchone()
+        self.assertEqual(account["role"], "user")
+        self.assertEqual(account["is_verified"], 0)
+        self.assertEqual(request_row["status"], "approved")
+        self.assertEqual(request_row["reviewed_by"], superadmin_id)
+        approved_page = self.client.get("/register.html")
+        self.assertIn(b"Your request was approved", approved_page.data)
+        self.assertIn(b"Create Account", approved_page.data)
+        self.assertNotIn(b'<meta http-equiv="refresh" content="5">', approved_page.data)
+
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            verification_page = self.client.post(
+                "/registration/send-verification",
+                data={"csrf_token": self.csrf_from(approved_page)},
+            )
+            send_email.assert_called_once()
+            verification_token = send_email.call_args.args[1]
+        self.assertTrue(verification_page.headers["Location"].endswith("/register.html"))
+        verification_sent_page = self.client.get("/register.html")
+        self.assertIn(b"Resend verification link", verification_sent_page.data)
+        self.client.get(f"/verify/{verification_token}")
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT role, is_verified FROM accounts WHERE id = ?", (applicant["id"],)
+            ).fetchone()
+        self.assertEqual(account["role"], "admin")
+        self.assertEqual(account["is_verified"], 1)
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        login_page = self.client.get("/login.html")
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "email": self.email,
+            "password": "secure-test-password",
+        })
+        self.assertEqual(login_response.status_code, 302)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["user_role"], "admin")
+
+    def test_superadmin_registration_requires_existing_superadmin_approval(self):
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            response = self.client.get("/register.html")
+            post_response = self.client.post("/register", data={
+                "csrf_token": self.csrf_from(response),
+                "full_name": "Superadmin Applicant",
+                "email": self.email,
+                "role": "superadmin",
+                "password": "secure-test-password",
+                "confirm_password": "secure-test-password",
+            })
+            send_email.assert_not_called()
+        self.assertEqual(post_response.status_code, 302)
+
+        with bidmart.database() as connection:
+            applicant = connection.execute(
+                "SELECT id, role FROM accounts WHERE email = ?", (self.email,)
+            ).fetchone()
+            request_row = connection.execute(
+                "SELECT requested_role, status FROM admin_role_requests WHERE account_id = ?",
+                (applicant["id"],),
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'superadmin', 1, ?)",
+                ("Existing Superadmin", "existing-root@example.invalid", "",
+                 generate_password_hash("secure-root-password"), 1),
+            )
+            superadmin_id = connection.execute(
+                "SELECT id FROM accounts WHERE email = 'existing-root@example.invalid'"
+            ).fetchone()["id"]
+
+        self.assertEqual(applicant["role"], "user")
+        self.assertEqual(request_row["requested_role"], "superadmin")
+        self.assertEqual(request_row["status"], "pending")
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE accounts SET is_verified = 1 WHERE id = ?", (applicant["id"],)
+            )
+
+        superadmin_client = bidmart.app.test_client()
+        with superadmin_client.session_transaction() as session:
+            session["user_id"] = superadmin_id
+            session["user_role"] = "superadmin"
+        requests_page = superadmin_client.get("/superadmin/admin-requests")
+        self.assertIn(b"Superadmin", requests_page.data)
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            with superadmin_client.session_transaction() as session:
+                csrf_token = session["csrf_token"]
+            response = superadmin_client.post(
+                f"/superadmin/admin-requests/{applicant['id']}/approve",
+                data={"csrf_token": csrf_token},
+            )
+            send_email.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT role, is_verified FROM accounts WHERE id = ?", (applicant["id"],)
+            ).fetchone()
+        self.assertEqual(account["role"], "user")
+        self.assertEqual(account["is_verified"], 0)
+        approved_page = self.client.get("/register.html")
+        self.assertIn(b"Your request was approved", approved_page.data)
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            self.client.post(
+                "/registration/send-verification",
+                data={"csrf_token": self.csrf_from(approved_page)},
+            )
+            send_email.assert_called_once()
+            verification_token = send_email.call_args.args[1]
+        self.client.get(f"/verify/{verification_token}")
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "SELECT role FROM accounts WHERE id = ?", (applicant["id"],)
+            ).fetchone()
+        self.assertEqual(account["role"], "superadmin")
 
     def test_provisioned_admin_can_log_in_with_privileged_role(self):
         with bidmart.database() as connection:
@@ -530,7 +1065,7 @@ class AuthenticationFlowTests(unittest.TestCase):
 
         page = self.client.get(post_response.headers["Location"])
         self.assertIn(b"check your inbox and spam folder", page.data)
-        self.assertIn(b"check the SMTP settings and the app&#39;s server log", page.data)
+        self.assertIn(b"Elevated-role requests must be approved before verification can be sent", page.data)
         self.assertNotIn(b"a new link has been sent", page.data)
 
     def test_password_reset_email_changes_password_and_consumes_token(self):
@@ -652,6 +1187,8 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertIn(b"Wireless Earbuds", response.data)
         self.assertIn(b"DEMO AUCTION", response.data)
         self.assertIn(b'href="/auctions" class="active" aria-current="page">Auctions</a>', response.data)
+        self.assertNotIn(b"Manage auctions", response.data)
+        self.assertNotIn(b"Close auction", response.data)
 
     def test_non_featured_auction_can_open_details_and_accept_a_bid(self):
         self.add_logged_in_bidder()

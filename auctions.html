@@ -18,6 +18,9 @@
                 <p class="tagline">BID AND WIN</p>
                 <h1>Live Auctions</h1>
                 <p>Explore products, compare current bids with original prices, and see how much time remains.</p>
+                {% if current_user_role in ("admin", "superadmin") %}
+                <a class="catalog-management-link" href="{{ url_for('admin_dashboard') }}#auctions">Manage auctions</a>
+                {% endif %}
             </div>
 
             <p class="auction-catalog-notice">
@@ -62,6 +65,12 @@
                         <a class="auction-card-bid is-disabled" href="{{ url_for('auction_details', slug=auction.slug) }}" aria-disabled="true">Auction ended</a>
                         {% else %}
                         <a class="auction-card-bid" href="{{ url_for('auction_details', slug=auction.slug) }}">Bid Now</a>
+                        {% endif %}
+                        {% if current_user_role in ("admin", "superadmin") %}
+                        <form class="auction-admin-controls" action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="admin-action-secondary" type="submit">Close auction</button>
+                        </form>
                         {% endif %}
                     </div>
                 </article>

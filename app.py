@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import re
@@ -8,9 +9,12 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.error import URLError
+from urllib.parse import urlencode, urljoin, urlparse
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -323,14 +327,72 @@ def initialize_database():
             connection.execute("ALTER TABLE accounts ADD COLUMN password_reset_token_hash TEXT")
         if "password_reset_expires_at" not in columns:
             connection.execute("ALTER TABLE accounts ADD COLUMN password_reset_expires_at INTEGER")
+        if "is_active" not in columns:
+            connection.execute("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS admin_role_requests (
+                account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
+                requested_role TEXT NOT NULL DEFAULT 'admin'
+                    CHECK (requested_role IN ('admin', 'superadmin')),
+                status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+                requested_at INTEGER NOT NULL,
+                reviewed_at INTEGER,
+                reviewed_by INTEGER REFERENCES accounts(id)
+            )"""
+        )
+        request_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(admin_role_requests)")
+        }
+        if "requested_role" not in request_columns:
+            connection.execute(
+                "ALTER TABLE admin_role_requests ADD COLUMN requested_role TEXT NOT NULL DEFAULT 'admin'"
+            )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS auctions (
                 id INTEGER PRIMARY KEY,
                 slug TEXT NOT NULL UNIQUE,
                 current_bid INTEGER NOT NULL CHECK (current_bid >= 0),
-                ends_at INTEGER NOT NULL
+                ends_at INTEGER NOT NULL,
+                starting_bid INTEGER NOT NULL DEFAULT 0,
+                minimum_increment INTEGER NOT NULL DEFAULT 100,
+                is_active INTEGER NOT NULL DEFAULT 1
             )"""
         )
+        auction_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(auctions)")
+        }
+        for column, definition in (
+            ("starting_bid", "INTEGER NOT NULL DEFAULT 0"),
+            ("minimum_increment", "INTEGER NOT NULL DEFAULT 100"),
+            ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+        ):
+            if column not in auction_columns:
+                connection.execute(f"ALTER TABLE auctions ADD COLUMN {column} {definition}")
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS catalog_products (
+                slug TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                description TEXT NOT NULL,
+                image TEXT,
+                icon TEXT,
+                rating TEXT NOT NULL DEFAULT '5.0',
+                reviews TEXT NOT NULL DEFAULT '0',
+                price INTEGER NOT NULL CHECK (price > 0),
+                old_price INTEGER CHECK (old_price IS NULL OR old_price >= price),
+                features_json TEXT NOT NULL DEFAULT '[]',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                show_in_catalog INTEGER NOT NULL DEFAULT 1,
+                updated_at INTEGER NOT NULL
+            )"""
+        )
+        product_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(catalog_products)")
+        }
+        if "show_in_catalog" not in product_columns:
+            connection.execute(
+                "ALTER TABLE catalog_products ADD COLUMN show_in_catalog INTEGER NOT NULL DEFAULT 1"
+            )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS auction_bids (
                 id INTEGER PRIMARY KEY,
@@ -375,9 +437,15 @@ def initialize_database():
                 payment_status TEXT NOT NULL CHECK (
                     payment_status IN ('unpaid', 'paid', 'failed', 'refunded')
                 ),
+                stock_reserved INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL
             )"""
         )
+        order_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(orders)")
+        }
+        if "stock_reserved" not in order_columns:
+            connection.execute("ALTER TABLE orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 0")
         connection.execute(
             """CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY,
@@ -392,17 +460,49 @@ def initialize_database():
         now = int(time.time())
         for product in PRODUCT_CATALOG:
             connection.execute(
+                """INSERT OR IGNORE INTO catalog_products
+                (slug, name, category, description, image, icon, rating, reviews, price, old_price, features_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    product["slug"], product["name"], product["category"], product["description"],
+                    product["image"], product["icon"], product["rating"], product["reviews"],
+                    product["price"], product["old_price"], json.dumps(product["features"]), now,
+                ),
+            )
+            connection.execute(
                 "INSERT OR IGNORE INTO product_inventory (product_slug, stock) VALUES (?, ?)",
                 (product["slug"], INITIAL_PRODUCT_STOCK),
             )
         for listing in AUCTION_LISTINGS:
             connection.execute(
-                "INSERT OR IGNORE INTO auctions (slug, current_bid, ends_at) VALUES (?, ?, ?)",
+                """INSERT OR IGNORE INTO catalog_products
+                (slug, name, category, description, image, icon, price, features_json, show_in_catalog, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 0, ?)""",
+                (
+                    listing["slug"], listing["name"], listing["category"], listing["description"],
+                    listing["image"], listing["icon"], listing["original_price"], now,
+                ),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO product_inventory (product_slug, stock) VALUES (?, ?)",
+                (listing["slug"], INITIAL_PRODUCT_STOCK),
+            )
+        for listing in AUCTION_LISTINGS:
+            connection.execute(
+                """INSERT OR IGNORE INTO auctions
+                (slug, current_bid, ends_at, starting_bid, minimum_increment) VALUES (?, ?, ?, ?, ?)""",
                 (
                     listing["slug"],
                     listing["starting_bid"],
                     now + listing["duration_days"] * 24 * 60 * 60,
+                    listing["starting_bid"],
+                    listing["minimum_increment"],
                 ),
+            )
+            connection.execute(
+                "UPDATE auctions SET starting_bid = ?, minimum_increment = ? "
+                "WHERE slug = ? AND starting_bid = 0",
+                (listing["starting_bid"], listing["minimum_increment"], listing["slug"]),
             )
 
 
@@ -413,7 +513,30 @@ initialize_database()
 def csrf_context():
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_urlsafe(32)
-    return {"csrf_token": session["csrf_token"]}
+    user_role = None
+    current_user_email = None
+    current_user_name = None
+    pending_role_request_count = 0
+    if session.get("user_id"):
+        with database() as connection:
+            account = connection.execute(
+                "SELECT role, full_name, email, is_active FROM accounts WHERE id = ?", (session["user_id"],)
+            ).fetchone()
+            if account and account["is_active"]:
+                user_role = account["role"]
+                current_user_name = account["full_name"]
+                current_user_email = account["email"]
+                if user_role == "superadmin":
+                    pending_role_request_count = connection.execute(
+                        "SELECT COUNT(*) FROM admin_role_requests WHERE status = 'pending'"
+                    ).fetchone()[0]
+    return {
+        "csrf_token": session["csrf_token"],
+        "current_user_role": user_role,
+        "current_user_email": current_user_email,
+        "current_user_name": current_user_name,
+        "pending_role_request_count": pending_role_request_count,
+    }
 
 
 @app.template_filter("datetime")
@@ -423,13 +546,35 @@ def format_datetime(timestamp):
 
 @app.before_request
 def protect_post_requests():
-    if request.method == "POST":
+    account_id = session.get("user_id")
+    if account_id:
+        with database() as connection:
+            account = connection.execute(
+                "SELECT role, email, full_name, is_active, is_verified FROM accounts WHERE id = ?",
+                (account_id,),
+            ).fetchone()
+        if not account or not account["is_active"] or not account["is_verified"]:
+            session.clear()
+            flash("Your account is inactive or requires email verification. Please sign in again.", "error")
+        else:
+            session["user_role"] = account["role"]
+            session["user_email"] = account["email"]
+            session["user_name"] = account["full_name"]
+
+    external_payment_callbacks = {
+        "sslcommerz_success",
+        "sslcommerz_fail",
+        "sslcommerz_cancel",
+        "sslcommerz_ipn",
+    }
+    if request.method == "POST" and request.endpoint not in external_payment_callbacks:
         submitted_token = request.form.get("csrf_token", "")
         session_token = session.get("csrf_token", "")
         if not submitted_token or not secrets.compare_digest(submitted_token, session_token):
             flash("Your form session expired. Please try submitting the form again.", "error")
             destinations = {
                 "register": "registration_page",
+                "review_admin_request": "admin_role_requests_page",
                 "resend_verification": "registration_page",
                 "login": "login_page",
                 "request_password_reset": "forgot_password_page",
@@ -532,15 +677,6 @@ def issue_password_reset(email):
 @app.get("/")
 @app.get("/index.html")
 def home():
-    current_user_name = None
-    if session.get("user_id"):
-        with database() as connection:
-            account = connection.execute(
-                "SELECT full_name FROM accounts WHERE id = ?",
-                (session["user_id"],),
-            ).fetchone()
-        if account:
-            current_user_name = account["full_name"]
     with database() as connection:
         product_inventory = {
             row["product_slug"]: row["stock"]
@@ -549,8 +685,6 @@ def home():
     auction, _ = get_auction(DEMO_AUCTION_SLUG)
     return render_template(
         "index.html",
-        current_user_email=session.get("user_email"),
-        current_user_name=current_user_name,
         active_page="home",
         featured_auction=auction,
         product_inventory=product_inventory,
@@ -567,7 +701,7 @@ def products_page():
         }
     return render_template(
         "products.html",
-        products=[{**product, "stock": inventory.get(product["slug"], 0)} for product in PRODUCT_CATALOG],
+        products=[{**product, "stock": inventory.get(product["slug"], 0)} for product in get_products()],
         current_user_email=session.get("user_email"),
         current_user_name=session.get("user_name"),
         active_page="products",
@@ -576,7 +710,7 @@ def products_page():
 
 @app.get("/products/<slug>")
 def product_details_page(slug):
-    product = next((item for item in PRODUCT_CATALOG if item["slug"] == slug), None)
+    product = get_product(slug)
     if not product:
         abort(404)
     with database() as connection:
@@ -584,7 +718,7 @@ def product_details_page(slug):
             "SELECT stock FROM product_inventory WHERE product_slug = ?", (slug,)
         ).fetchone()
     related_products = [
-        item for item in PRODUCT_CATALOG
+        item for item in get_products()
         if item["slug"] != slug
     ][:4]
     return render_template(
@@ -603,7 +737,7 @@ def _checkout_product():
     if not isinstance(draft, dict):
         return None
     slug = draft.get("product_slug")
-    return next((item for item in PRODUCT_CATALOG if item["slug"] == slug), None)
+    return get_product(slug)
 
 
 def _parse_quantity(raw_quantity):
@@ -616,6 +750,7 @@ def _parse_quantity(raw_quantity):
 
 def _checkout_stock(slug):
     with database() as connection:
+        release_expired_online_orders(connection, int(time.time()))
         row = connection.execute(
             "SELECT stock FROM product_inventory WHERE product_slug = ?", (slug,)
         ).fetchone()
@@ -676,16 +811,244 @@ def _checkout_context(form_data=None, errors=None):
         "totals": totals,
         "errors": errors or {},
         "delivery_fees": DELIVERY_FEES,
+        "sslcommerz_ready": sslcommerz_is_configured(),
         "current_user_name": session.get("user_name"),
         "current_user_email": session.get("user_email"),
         "active_page": "products",
     }
 
 
+def sslcommerz_is_configured():
+    base_url = urlparse(os.getenv("APP_BASE_URL", "").strip())
+    return bool(
+        os.getenv("SSLCOMMERZ_STORE_ID")
+        and os.getenv("SSLCOMMERZ_STORE_PASSWORD")
+        and base_url.scheme == "https"
+        and base_url.hostname
+        and base_url.hostname not in ("localhost", "127.0.0.1")
+    )
+
+
+def sslcommerz_endpoint(api_name):
+    sandbox = os.getenv("SSLCOMMERZ_IS_SANDBOX", "true").strip().lower() != "false"
+    host = "https://sandbox.sslcommerz.com" if sandbox else "https://securepay.sslcommerz.com"
+    paths = {
+        "initiate": "/gwprocess/v4/api.php",
+        "validate": "/validator/api/validationserverAPI.php",
+    }
+    return host + paths[api_name]
+
+
+def sslcommerz_api_request(endpoint, payload, method="POST"):
+    encoded_payload = urlencode(payload)
+    target = endpoint + ("?" + encoded_payload if method == "GET" else "")
+    api_request = Request(
+        target,
+        data=encoded_payload.encode("utf-8") if method == "POST" else None,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method=method,
+    )
+    with urlopen(api_request, timeout=20) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if not isinstance(result, dict):
+        raise ValueError("SSLCommerz returned an invalid response.")
+    return result
+
+
+def initiate_sslcommerz_payment(order, product_name):
+    base_url = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+    parsed_base_url = urlparse(base_url)
+    if parsed_base_url.scheme != "https" or not parsed_base_url.hostname or parsed_base_url.hostname in (
+        "localhost", "127.0.0.1",
+    ):
+        raise ValueError("Set APP_BASE_URL to this site's public HTTPS address before enabling payments.")
+    callback_base = base_url
+    payload = {
+        "store_id": os.environ["SSLCOMMERZ_STORE_ID"],
+        "store_passwd": os.environ["SSLCOMMERZ_STORE_PASSWORD"],
+        "total_amount": f"{order['total']:.2f}",
+        "currency": "BDT",
+        "tran_id": order["order_number"],
+        "success_url": callback_base + url_for("sslcommerz_success"),
+        "fail_url": callback_base + url_for("sslcommerz_fail"),
+        "cancel_url": callback_base + url_for("sslcommerz_cancel"),
+        "ipn_url": callback_base + url_for("sslcommerz_ipn"),
+        "shipping_method": "YES",
+        "num_of_item": str(order["quantity"]),
+        "product_name": product_name[:200],
+        "product_category": "General",
+        "product_profile": "physical-goods",
+        "cus_name": order["customer_name"][:50],
+        "cus_email": order["customer_email"],
+        "cus_add1": order["address"][:50],
+        "cus_add2": order["district"][:50],
+        "cus_city": order["division"],
+        "cus_postcode": order["postal_code"] or "1000",
+        "cus_country": "Bangladesh",
+        "cus_phone": order["customer_phone"],
+        "ship_name": order["customer_name"][:50],
+        "ship_add1": order["address"][:50],
+        "ship_add2": order["district"][:50],
+        "ship_area": order["district"][:50],
+        "ship_city": order["division"],
+        "ship_state": order["division"],
+        "ship_postcode": order["postal_code"] or "1000",
+        "ship_country": "Bangladesh",
+    }
+    response = sslcommerz_api_request(sslcommerz_endpoint("initiate"), payload)
+    gateway_url = response.get("GatewayPageURL", "")
+    gateway_host = urlparse(gateway_url).hostname
+    allowed_hosts = {"sandbox.sslcommerz.com", "securepay.sslcommerz.com"}
+    if response.get("status") != "SUCCESS" or urlparse(gateway_url).scheme != "https" or gateway_host not in allowed_hosts:
+        raise ValueError("SSLCommerz could not start the payment session.")
+    return gateway_url
+
+
+def validate_sslcommerz_payment(order, val_id):
+    if not val_id or len(val_id) > 100:
+        return False
+    response = sslcommerz_api_request(
+        sslcommerz_endpoint("validate"),
+        {
+            "val_id": val_id,
+            "store_id": os.environ["SSLCOMMERZ_STORE_ID"],
+            "store_passwd": os.environ["SSLCOMMERZ_STORE_PASSWORD"],
+            "format": "json",
+        },
+        method="GET",
+    )
+    try:
+        amount = Decimal(str(response.get("amount", "")))
+    except InvalidOperation:
+        return False
+    return (
+        str(response.get("status", "")) in ("VALID", "VALIDATED")
+        and response.get("tran_id") == order["order_number"]
+        and str(response.get("currency", "")).upper() == "BDT"
+        and str(response.get("risk_level", "0")) == "0"
+        and amount == Decimal(order["total"])
+    )
+
+
+def complete_sslcommerz_payment(tran_id, val_id):
+    if not sslcommerz_is_configured():
+        return False
+    with database() as connection:
+        order = connection.execute(
+            "SELECT * FROM orders WHERE order_number = ? AND payment_method != 'cod'",
+            (tran_id,),
+        ).fetchone()
+    if not order:
+        return False
+    try:
+        if not validate_sslcommerz_payment(order, val_id):
+            return False
+    except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
+        logging.warning("SSLCommerz transaction validation could not be completed for an order.")
+        return False
+
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE orders SET payment_status = 'paid', order_status = 'confirmed', stock_reserved = 0 "
+            "WHERE id = ? AND payment_method != 'cod' AND payment_status != 'paid' "
+            "AND stock_reserved = 1",
+            (order["id"],),
+        )
+        current_state = connection.execute(
+            "SELECT payment_status FROM orders WHERE id = ?", (order["id"],)
+        ).fetchone()
+    return result.rowcount == 1 or current_state["payment_status"] == "paid"
+
+
+def release_order_stock(connection, order_id):
+    order = connection.execute(
+        "SELECT stock_reserved FROM orders WHERE id = ?", (order_id,)
+    ).fetchone()
+    if not order or not order["stock_reserved"]:
+        return
+    items = connection.execute(
+        "SELECT product_slug, quantity FROM order_items WHERE order_id = ?", (order_id,)
+    ).fetchall()
+    for item in items:
+        connection.execute(
+            "UPDATE product_inventory SET stock = stock + ? WHERE product_slug = ?",
+            (item["quantity"], item["product_slug"]),
+        )
+    connection.execute("UPDATE orders SET stock_reserved = 0 WHERE id = ?", (order_id,))
+
+
+def release_expired_online_orders(connection, now):
+    expired = connection.execute(
+        "SELECT id FROM orders WHERE payment_method != 'cod' AND payment_status != 'paid' "
+        "AND stock_reserved = 1 AND created_at <= ?",
+        (now - 30 * 60,),
+    ).fetchall()
+    for order in expired:
+        connection.execute(
+            "UPDATE orders SET payment_status = 'failed' WHERE id = ? AND payment_status != 'paid'",
+            (order["id"],),
+        )
+        release_order_stock(connection, order["id"])
+
+
+@app.post("/payment/sslcommerz/success")
+def sslcommerz_success():
+    tran_id = request.form.get("tran_id", "")
+    val_id = request.form.get("val_id", "")
+    if complete_sslcommerz_payment(tran_id, val_id):
+        return redirect(url_for("payment_result", order_number=tran_id))
+    logging.warning("SSLCommerz reported a payment that failed server-side verification.")
+    return redirect(url_for("payment_result", order_number=tran_id, result="verification-pending"))
+
+
+@app.post("/payment/sslcommerz/ipn")
+def sslcommerz_ipn():
+    tran_id = request.form.get("tran_id", "")
+    val_id = request.form.get("val_id", "")
+    if complete_sslcommerz_payment(tran_id, val_id):
+        return "OK", 200
+    return "Payment not verified", 400
+
+
+@app.post("/payment/sslcommerz/fail")
+def sslcommerz_fail():
+    tran_id = request.form.get("tran_id", "")
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE orders SET payment_status = 'failed' "
+            "WHERE order_number = ? AND payment_method != 'cod' AND payment_status = 'unpaid'",
+            (tran_id,),
+        )
+    return redirect(url_for("payment_result", order_number=tran_id))
+
+
+@app.post("/payment/sslcommerz/cancel")
+def sslcommerz_cancel():
+    return sslcommerz_fail()
+
+
+@app.get("/payment/result/<order_number>")
+def payment_result(order_number):
+    with database() as connection:
+        order = connection.execute(
+            "SELECT order_number, total, payment_status, order_status FROM orders WHERE order_number = ?",
+            (order_number,),
+        ).fetchone()
+    if not order:
+        abort(404)
+    return render_template(
+        "payment_result.html",
+        order=order,
+        verification_pending=request.args.get("result") == "verification-pending",
+        current_user_name=session.get("user_name"),
+        current_user_email=session.get("user_email"),
+    )
+
+
 @app.post("/checkout/start")
 def start_checkout():
     slug = request.form.get("product_slug", "")
-    product = next((item for item in PRODUCT_CATALOG if item["slug"] == slug), None)
+    product = get_product(slug)
     if not product:
         abort(404)
     quantity = _parse_quantity(request.form.get("quantity"))
@@ -790,8 +1153,19 @@ def place_checkout_order():
         errors["delivery_note"] = "Keep your delivery note under 500 characters."
     if quantity is None:
         errors["quantity"] = "Choose a quantity between 1 and 99."
-    if payment_method not in ("cod", "bkash", "nagad", "card"):
+    if payment_method not in ("cod", "card"):
         errors["payment_method"] = "Choose a supported payment method."
+    elif payment_method != "cod":
+        if not sslcommerz_is_configured():
+            errors["payment_method"] = "Online payment is not configured yet. Choose Cash on Delivery or ask the store administrator to configure SSLCommerz."
+        elif not email:
+            errors["customer_email"] = "Enter an email address for the payment receipt."
+        elif len(email) > 50:
+            errors["customer_email"] = "SSLCommerz requires an email address of 50 characters or fewer."
+        elif quantity is not None:
+            payable = _checkout_totals(product, quantity, division, coupon_code)["total"]
+            if not 10 <= payable <= 500000:
+                errors["payment_method"] = "SSLCommerz supports online payments from ৳10 to ৳500,000."
     if coupon_code and coupon_code not in CHECKOUT_COUPONS:
         errors["coupon_code"] = "That coupon code is not valid."
     elif coupon_code and quantity is not None:
@@ -813,7 +1187,7 @@ def place_checkout_order():
 
     payment_status = "unpaid"
     order_status = "confirmed" if payment_method == "cod" else "pending"
-    order_number = f"BM-{secrets.token_hex(5).upper()}"
+    order_number = f"BM-{secrets.token_hex(12).upper()}"
     tracking_token = secrets.token_urlsafe(32)
     account_id = session.get("user_id")
     now = int(time.time())
@@ -830,31 +1204,30 @@ def place_checkout_order():
                 ))
             flash("This checkout was already submitted.", "error")
             return redirect(url_for("products_page"))
-        if payment_method == "cod":
-            reserved = connection.execute(
-                "UPDATE product_inventory SET stock = stock - ? "
-                "WHERE product_slug = ? AND stock >= ?",
-                (quantity, product["slug"], quantity),
+        reserved = connection.execute(
+            "UPDATE product_inventory SET stock = stock - ? "
+            "WHERE product_slug = ? AND stock >= ?",
+            (quantity, product["slug"], quantity),
+        )
+        if reserved.rowcount != 1:
+            context = _checkout_context(
+                form_data,
+                {"quantity": "Stock changed while you were checking out. Review the available quantity."},
             )
-            if reserved.rowcount != 1:
-                context = _checkout_context(
-                    form_data,
-                    {"quantity": "Stock changed while you were checking out. Review the available quantity."},
-                )
-                return render_template("checkout.html", **context), 409
+            return render_template("checkout.html", **context), 409
         connection.execute(
             """INSERT INTO orders (
                 order_number, checkout_key, tracking_token_hash, account_id,
                 customer_name, customer_email, customer_phone, division, district,
                 address, postal_code, delivery_note, subtotal, delivery_fee, discount,
-                total, coupon_code, payment_method, order_status, payment_status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                total, coupon_code, payment_method, order_status, payment_status, stock_reserved, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 order_number, checkout_key, hashlib.sha256(tracking_token.encode()).hexdigest(),
                 account_id, name, email or None, phone, division, district, address,
                 postal_code or None, delivery_note or None, totals["subtotal"],
                 totals["delivery_fee"], totals["discount"], totals["total"],
-                coupon_code or None, payment_method, order_status, payment_status, now,
+                coupon_code or None, payment_method, order_status, payment_status, 1, now,
             ),
         )
         order_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -864,6 +1237,41 @@ def place_checkout_order():
             VALUES (?, ?, ?, ?, ?, NULL)""",
             (order_id, product["slug"], product["name"], quantity, product["price"]),
         )
+
+    if payment_method != "cod":
+        order = {
+            "order_number": order_number,
+            "total": totals["total"],
+            "customer_name": name,
+            "customer_email": email,
+            "customer_phone": phone,
+            "quantity": quantity,
+            "address": address,
+            "district": district,
+            "division": division,
+            "postal_code": postal_code,
+        }
+        try:
+            gateway_url = initiate_sslcommerz_payment(order, product["name"])
+        except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
+            logging.warning("SSLCommerz payment session could not be created.")
+            with database() as connection:
+                connection.execute(
+                    "UPDATE orders SET payment_status = 'failed' WHERE order_number = ? AND payment_status = 'unpaid'",
+                    (order_number,),
+                )
+                release_order_stock(connection, order_id)
+            draft["checkout_key"] = secrets.token_urlsafe(24)
+            session["checkout_draft"] = draft
+            flash(
+                "SSLCommerz could not start the payment. No payment was taken; please try again or choose Cash on Delivery.",
+                "error",
+            )
+            return redirect(url_for("checkout_page"))
+        draft["order_number"] = order_number
+        draft["tracking_token"] = tracking_token
+        session["checkout_draft"] = draft
+        return redirect(gateway_url)
 
     draft["order_number"] = order_number
     draft["tracking_token"] = tracking_token
@@ -909,21 +1317,10 @@ def track_order(order_number, token):
 @app.get("/auctions")
 def auctions_page():
     now = int(time.time())
-    with database() as connection:
-        auctions = connection.execute(
-            "SELECT slug, current_bid, ends_at FROM auctions ORDER BY ends_at"
-        ).fetchall()
-    auction_by_slug = {auction["slug"]: auction for auction in auctions}
-    listings = []
-    for listing in AUCTION_LISTINGS:
-        auction = auction_by_slug.get(listing["slug"])
-        if auction:
-            listings.append({
-                **listing,
-                "current_bid": auction["current_bid"],
-                "ends_at": auction["ends_at"],
-                "is_ended": auction["ends_at"] <= now,
-            })
+    listings = [
+        {**listing, "is_ended": listing["ends_at"] <= now}
+        for listing in get_auction_listings()
+    ]
     return render_template(
         "auctions.html",
         auctions=listings,
@@ -935,12 +1332,12 @@ def auctions_page():
 
 
 def get_auction(slug):
-    listing = next((item for item in AUCTION_LISTINGS if item["slug"] == slug), None)
-    if not listing:
-        abort(404)
     with database() as connection:
         auction = connection.execute(
-            "SELECT id, current_bid, ends_at FROM auctions WHERE slug = ?",
+            "SELECT a.id, a.slug, a.current_bid, a.ends_at, a.minimum_increment, "
+            "p.name, p.category, p.description, p.image, p.icon, p.price AS original_price "
+            "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug "
+            "WHERE a.slug = ? AND a.is_active = 1 AND p.is_active = 1",
             (slug,),
         ).fetchone()
         if not auction:
@@ -952,7 +1349,7 @@ def get_auction(slug):
             "auction_bids.id DESC LIMIT 10",
             (auction["id"],),
         ).fetchall()
-    return {**listing, **dict(auction)}, recent_bids
+    return dict(auction), recent_bids
 
 
 @app.get("/auction/<slug>")
@@ -985,12 +1382,21 @@ def auction_details(slug):
 @app.post("/auction/<slug>/bid")
 @app.post("/auction/" + DEMO_AUCTION_SLUG + "/bid", defaults={"slug": DEMO_AUCTION_SLUG})
 def place_bid(slug):
-    listing = next((item for item in AUCTION_LISTINGS if item["slug"] == slug), None)
+    listing = get_auction_listings()
+    listing = next((item for item in listing if item["slug"] == slug), None)
     if not listing:
         abort(404)
     auction_url = url_for("auction_details", slug=slug)
     if not session.get("user_id"):
         flash("Log in to your verified account before placing a bid.", "error")
+        return redirect(url_for("login_page", next=auction_url))
+    with database() as connection:
+        bidder = connection.execute(
+            "SELECT is_active, is_verified FROM accounts WHERE id = ?", (session["user_id"],)
+        ).fetchone()
+    if not bidder or not bidder["is_active"] or not bidder["is_verified"]:
+        session.clear()
+        flash("Sign in to an active, verified account before placing a bid.", "error")
         return redirect(url_for("login_page", next=auction_url))
 
     raw_amount = request.form.get("bid_amount", "").replace(",", "").strip()
@@ -1039,7 +1445,517 @@ def stylesheet():
 
 @app.get("/register.html")
 def registration_page():
-    return render_template("register.html")
+    registration_request = None
+    account_id = session.get("pending_role_request_account_id")
+    if account_id:
+        with database() as connection:
+            registration_request = connection.execute(
+                "SELECT a.full_name, a.email, a.is_verified, a.verification_token_hash, "
+                "r.requested_role, r.status "
+                "FROM accounts AS a JOIN admin_role_requests AS r ON r.account_id = a.id "
+                "WHERE a.id = ?",
+                (account_id,),
+            ).fetchone()
+        if not registration_request:
+            session.pop("pending_role_request_account_id", None)
+    return render_template("register.html", registration_request=registration_request)
+
+
+def create_initial_superadmin(full_name, email, password):
+    full_name = full_name.strip()
+    email = email.strip().casefold()
+    if not full_name or "@" not in email or len(password) < 8:
+        raise ValueError("Enter a valid name and email, and a password of at least 8 characters.")
+
+    with database() as connection:
+        if connection.execute(
+            "SELECT 1 FROM accounts WHERE role = 'superadmin' LIMIT 1"
+        ).fetchone():
+            raise ValueError("A Superadmin already exists. Use the approval page to add elevated accounts.")
+        account = connection.execute(
+            "SELECT id, role, is_verified, password_hash FROM accounts WHERE email = ?",
+            (email,),
+        ).fetchone()
+        if account:
+            if account["role"] != "user":
+                raise ValueError("Only an existing User account can be upgraded during initial setup.")
+            if not account["is_verified"]:
+                raise ValueError("Verify this account's email before upgrading it to Superadmin.")
+            if not check_password_hash(account["password_hash"], password):
+                raise ValueError("The password does not match the existing account.")
+            connection.execute(
+                "UPDATE accounts SET role = 'superadmin' WHERE id = ? AND role = 'user'",
+                (account["id"],),
+            )
+            connection.execute(
+                "UPDATE admin_role_requests SET status = 'approved', requested_role = 'superadmin', "
+                "reviewed_at = ?, reviewed_by = ? WHERE account_id = ? AND status = 'pending'",
+                (int(time.time()), account["id"], account["id"]),
+            )
+            return "upgraded"
+
+        connection.execute(
+            "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+            "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+            (full_name, email, generate_password_hash(password), int(time.time())),
+        )
+        return "created"
+
+
+def require_superadmin():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        account = connection.execute(
+            "SELECT role, is_active FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+    if not account or not account["is_active"] or account["role"] != "superadmin":
+        abort(403)
+    return account_id
+
+
+def require_staff():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        account = connection.execute(
+            "SELECT role, is_active FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+    if not account or not account["is_active"] or account["role"] not in ("admin", "superadmin"):
+        abort(403)
+    return account_id
+
+
+def get_products(include_inactive=False):
+    query = "SELECT * FROM catalog_products WHERE show_in_catalog = 1"
+    if not include_inactive:
+        query += " AND is_active = 1"
+    query += " ORDER BY name COLLATE NOCASE"
+    with database() as connection:
+        rows = connection.execute(query).fetchall()
+    products = []
+    for row in rows:
+        product = dict(row)
+        product["features"] = json.loads(product.pop("features_json"))
+        product.pop("updated_at")
+        product.pop("is_active")
+        products.append(product)
+    return products
+
+
+def get_product(slug, include_inactive=False):
+    with database() as connection:
+        query = "SELECT * FROM catalog_products WHERE slug = ? AND show_in_catalog = 1"
+        if not include_inactive:
+            query += " AND is_active = 1"
+        row = connection.execute(query, (slug,)).fetchone()
+    if not row:
+        return None
+    product = dict(row)
+    product["features"] = json.loads(product.pop("features_json"))
+    product.pop("updated_at")
+    product.pop("is_active")
+    return product
+
+
+def get_auction_listings(include_inactive=False):
+    query = (
+        "SELECT a.slug, a.current_bid, a.ends_at, a.starting_bid, a.minimum_increment, "
+        "a.is_active, p.name, p.category, p.description, p.image, p.icon, p.price AS original_price "
+        "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug"
+    )
+    if not include_inactive:
+        query += " WHERE a.is_active = 1 AND p.is_active = 1"
+    query += " ORDER BY a.ends_at"
+    with database() as connection:
+        rows = connection.execute(query).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/superadmin/admin-requests")
+def admin_role_requests_page():
+    require_superadmin()
+    with database() as connection:
+        requests = connection.execute(
+            "SELECT r.account_id, r.requested_role, r.requested_at, a.full_name, a.email, a.is_verified "
+            "FROM admin_role_requests AS r "
+            "JOIN accounts AS a ON a.id = r.account_id "
+            "WHERE r.status = 'pending' ORDER BY r.requested_at"
+        ).fetchall()
+    return render_template("admin_role_requests.html", requests=requests)
+
+
+@app.get("/admin/dashboard")
+def admin_dashboard():
+    staff_id = require_staff()
+    with database() as connection:
+        products = connection.execute(
+            "SELECT p.*, i.stock FROM catalog_products AS p "
+            "LEFT JOIN product_inventory AS i ON i.product_slug = p.slug "
+            "ORDER BY p.is_active DESC, p.name COLLATE NOCASE"
+        ).fetchall()
+        orders = connection.execute(
+            "SELECT id, order_number, customer_name, customer_email, customer_phone, total, "
+            "division, district, address, postal_code, delivery_note, payment_method, payment_status, "
+            "order_status, created_at, stock_reserved, "
+            "(SELECT GROUP_CONCAT(product_name || ' × ' || quantity, ', ') "
+            "FROM order_items WHERE order_id = orders.id) AS item_summary "
+            "FROM orders ORDER BY created_at DESC LIMIT 100"
+        ).fetchall()
+        stats = {
+            "products": connection.execute(
+                "SELECT COUNT(*) FROM catalog_products WHERE is_active = 1"
+            ).fetchone()[0],
+            "orders": connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0],
+            "paid_revenue": connection.execute(
+                "SELECT COALESCE(SUM(total), 0) FROM orders WHERE payment_status = 'paid'"
+            ).fetchone()[0],
+            "pending_orders": connection.execute(
+                "SELECT COUNT(*) FROM orders WHERE order_status = 'pending' OR payment_status = 'unpaid'"
+            ).fetchone()[0],
+        }
+        auction_products = connection.execute(
+            "SELECT p.slug, p.name FROM catalog_products AS p "
+            "LEFT JOIN auctions AS a ON a.slug = p.slug "
+            "WHERE p.is_active = 1 AND a.slug IS NULL ORDER BY p.name COLLATE NOCASE"
+        ).fetchall()
+        role_row = connection.execute(
+            "SELECT role FROM accounts WHERE id = ?", (staff_id,)
+        ).fetchone()
+        accounts = []
+        if role_row["role"] == "superadmin":
+            accounts = connection.execute(
+                "SELECT id, full_name, email, role, is_active, is_verified "
+                "FROM accounts WHERE id != ? ORDER BY role, full_name COLLATE NOCASE",
+                (staff_id,),
+            ).fetchall()
+    product_rows = []
+    for row in products:
+        product = dict(row)
+        product["features_text"] = ", ".join(json.loads(product.pop("features_json")))
+        product_rows.append(product)
+    return render_template(
+        "admin_dashboard.html",
+        products=product_rows,
+        orders=orders,
+        stats=stats,
+        auctions=get_auction_listings(include_inactive=True),
+        auction_products=auction_products,
+        accounts=accounts,
+        is_superadmin=bool(accounts) or role_row["role"] == "superadmin",
+        current_user_email=session.get("user_email"),
+        current_user_name=session.get("user_name"),
+    )
+
+
+def _admin_product_values(form):
+    name = form.get("name", "").strip()
+    slug = form.get("slug", "").strip().lower()
+    category = form.get("category", "").strip()
+    description = form.get("description", "").strip()
+    image = form.get("image", "").strip().replace("\\", "/")
+    icon = form.get("icon", "").strip()
+    features = [part.strip() for part in form.get("features", "").split(",") if part.strip()]
+    try:
+        price = int(form.get("price", ""))
+        stock = int(form.get("stock", ""))
+        old_price = int(form["old_price"]) if form.get("old_price", "").strip() else None
+    except ValueError:
+        return None, "Price, previous price, and stock must be whole numbers."
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) or len(slug) > 100:
+        return None, "Use a product slug containing lowercase letters, numbers, and hyphens only."
+    if not name or len(name) > 120 or not category or len(category) > 80:
+        return None, "Enter a product name (up to 120 characters) and category (up to 80 characters)."
+    if not description or len(description) > 1000:
+        return None, "Enter a product description of up to 1,000 characters."
+    if price < 1 or stock < 0 or stock > 1_000_000:
+        return None, "Price must be positive and stock must be between 0 and 1,000,000."
+    if old_price is not None and old_price < price:
+        return None, "Previous price must be greater than or equal to the current price."
+    if len(features) > 8 or any(len(feature) > 120 for feature in features):
+        return None, "Add at most 8 product features, each up to 120 characters."
+    if image:
+        image_path = (ROOT / "static" / image).resolve()
+        if not image_path.is_relative_to((ROOT / "static").resolve()) or not image_path.is_file():
+            return None, "Choose an image file that already exists in the static folder."
+    elif not icon or len(icon) > 8:
+        return None, "Provide a static image path or a short product icon."
+    return {
+        "slug": slug,
+        "name": name,
+        "category": category,
+        "description": description,
+        "image": image or None,
+        "icon": icon or None,
+        "price": price,
+        "old_price": old_price,
+        "stock": stock,
+        "show_in_catalog": 1 if form.get("show_in_catalog", "1") == "1" else 0,
+        "features_json": json.dumps(features),
+    }, None
+
+
+@app.post("/admin/products/create")
+def admin_create_product():
+    require_staff()
+    values, error = _admin_product_values(request.form)
+    if error:
+        flash(error, "error")
+        return redirect(url_for("admin_dashboard") + "#products")
+    now = int(time.time())
+    try:
+        with database() as connection:
+            connection.execute(
+                """INSERT INTO catalog_products
+                (slug, name, category, description, image, icon, price, old_price, features_json, show_in_catalog, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (values["slug"], values["name"], values["category"], values["description"],
+                 values["image"], values["icon"], values["price"], values["old_price"],
+                 values["features_json"], values["show_in_catalog"], now),
+            )
+            connection.execute(
+                "INSERT INTO product_inventory (product_slug, stock) VALUES (?, ?)",
+                (values["slug"], values["stock"]),
+            )
+    except sqlite3.IntegrityError:
+        flash("A product with that slug already exists.", "error")
+        return redirect(url_for("admin_dashboard") + "#products")
+    flash("Product created and published.", "success")
+    return redirect(url_for("admin_dashboard") + "#products")
+
+
+@app.post("/admin/products/<slug>/update")
+def admin_update_product(slug):
+    require_staff()
+    values, error = _admin_product_values(request.form)
+    if error:
+        flash(error, "error")
+        return redirect(url_for("admin_dashboard") + "#products")
+    if values["slug"] != slug:
+        flash("Product slugs cannot be changed after creation.", "error")
+        return redirect(url_for("admin_dashboard") + "#products")
+    with database() as connection:
+        result = connection.execute(
+            """UPDATE catalog_products SET name = ?, category = ?, description = ?, image = ?, icon = ?,
+            price = ?, old_price = ?, features_json = ?, show_in_catalog = ?, updated_at = ? WHERE slug = ?""",
+            (values["name"], values["category"], values["description"], values["image"],
+             values["icon"], values["price"], values["old_price"], values["features_json"],
+             values["show_in_catalog"], int(time.time()), slug),
+        )
+        if result.rowcount:
+            connection.execute(
+                "UPDATE product_inventory SET stock = ? WHERE product_slug = ?",
+                (values["stock"], slug),
+            )
+    if not result.rowcount:
+        abort(404)
+    flash("Product details and stock updated.", "success")
+    return redirect(url_for("admin_dashboard") + "#products")
+
+
+@app.post("/admin/products/<slug>/<action>")
+def admin_set_product_status(slug, action):
+    require_staff()
+    if action not in ("archive", "restore"):
+        abort(404)
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE catalog_products SET is_active = ?, updated_at = ? WHERE slug = ?",
+            (0 if action == "archive" else 1, int(time.time()), slug),
+        )
+    if not result.rowcount:
+        abort(404)
+    flash("Product archived." if action == "archive" else "Product restored.", "success")
+    return redirect(url_for("admin_dashboard") + "#products")
+
+
+@app.post("/admin/auctions/create")
+def admin_create_auction():
+    require_staff()
+    slug = request.form.get("product_slug", "")
+    try:
+        starting_bid = int(request.form.get("starting_bid", ""))
+        increment = int(request.form.get("minimum_increment", ""))
+        duration = int(request.form.get("duration_days", ""))
+    except ValueError:
+        flash("Starting bid, bid increment, and duration must be whole numbers.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    if starting_bid < 1 or increment < 1 or not 1 <= duration <= 90:
+        flash("Enter positive bid amounts and an auction duration from 1 to 90 days.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    product = get_product(slug)
+    if not product:
+        flash("Choose an active product to auction.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    with database() as connection:
+        try:
+            connection.execute(
+                """INSERT INTO auctions
+                (slug, current_bid, ends_at, starting_bid, minimum_increment, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)""",
+                (slug, starting_bid, int(time.time()) + duration * 86400, starting_bid, increment),
+            )
+        except sqlite3.IntegrityError:
+            flash("This product already has an auction listing.", "error")
+            return redirect(url_for("admin_dashboard") + "#auctions")
+    flash("Auction published.", "success")
+    return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+@app.post("/admin/auctions/<slug>/close")
+def admin_close_auction(slug):
+    require_staff()
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE auctions SET is_active = 0 WHERE slug = ? AND is_active = 1",
+            (slug,),
+        )
+    if not result.rowcount:
+        flash("That auction is already closed or was not found.", "error")
+    else:
+        flash("Auction closed; its bid history has been preserved.", "success")
+    return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+@app.post("/admin/orders/<int:order_id>/status")
+def admin_update_order_status(order_id):
+    require_staff()
+    requested_status = request.form.get("order_status", "")
+    transitions = {
+        "confirmed": "processing",
+        "processing": "shipped",
+        "shipped": "delivered",
+    }
+    with database() as connection:
+        order = connection.execute(
+            "SELECT order_status, payment_method, payment_status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not order:
+            abort(404)
+        allowed = transitions.get(order["order_status"])
+        if not allowed or requested_status != allowed:
+            flash("Orders must move one step at a time through the delivery workflow.", "error")
+        elif order["payment_method"] != "cod" and order["payment_status"] != "paid":
+            flash("An online order must be paid before fulfilment.", "error")
+        else:
+            connection.execute(
+                "UPDATE orders SET order_status = ? WHERE id = ? AND order_status = ?",
+                (requested_status, order_id, order["order_status"]),
+            )
+            flash(f"Order moved to {requested_status}.", "success")
+    return redirect(url_for("admin_dashboard") + "#orders")
+
+
+@app.post("/superadmin/accounts/<int:account_id>/update")
+def superadmin_update_account(account_id):
+    superadmin_id = require_superadmin()
+    if account_id == superadmin_id:
+        flash("You cannot change your own Superadmin account here.", "error")
+        return redirect(url_for("admin_dashboard") + "#accounts")
+    action = request.form.get("action", "")
+    if action not in ("make_admin", "make_user", "activate", "deactivate"):
+        abort(400)
+    with database() as connection:
+        account = connection.execute(
+            "SELECT role, is_active FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        if not account:
+            abort(404)
+        if account["role"] == "superadmin":
+            flash("Superadmin accounts cannot be changed from this screen.", "error")
+        elif action == "make_admin":
+            connection.execute("UPDATE accounts SET role = 'admin' WHERE id = ?", (account_id,))
+            flash("Account role changed to Admin.", "success")
+        elif action == "make_user":
+            connection.execute("UPDATE accounts SET role = 'user' WHERE id = ?", (account_id,))
+            flash("Account role changed to User.", "success")
+        elif action == "activate":
+            connection.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+            flash("Account activated.", "success")
+        else:
+            connection.execute("UPDATE accounts SET is_active = 0 WHERE id = ?", (account_id,))
+            flash("Account deactivated.", "success")
+    return redirect(url_for("admin_dashboard") + "#accounts")
+
+
+@app.post("/superadmin/admin-requests/<int:account_id>/<action>")
+def review_admin_request(account_id, action):
+    superadmin_id = require_superadmin()
+    if action not in ("approve", "reject"):
+        abort(404)
+
+    with database() as connection:
+        request_row = connection.execute(
+            "SELECT r.status, r.requested_role, a.role, a.is_verified FROM admin_role_requests AS r "
+            "JOIN accounts AS a ON a.id = r.account_id WHERE r.account_id = ?",
+            (account_id,),
+        ).fetchone()
+        if not request_row or request_row["status"] != "pending":
+            flash("This Admin request is no longer pending.", "error")
+        elif action == "approve" and request_row["role"] != "user":
+            flash("Only a regular user account can be approved for an elevated role.", "error")
+        else:
+            status = "approved" if action == "approve" else "rejected"
+            connection.execute(
+                "UPDATE admin_role_requests SET status = ?, reviewed_at = ?, reviewed_by = ? "
+                "WHERE account_id = ? AND status = 'pending'",
+                (status, int(time.time()), superadmin_id, account_id),
+            )
+            if action == "approve":
+                connection.execute(
+                    "UPDATE accounts SET is_verified = 0, verification_token_hash = NULL, "
+                    "verification_expires_at = NULL WHERE id = ? AND role = 'user'",
+                    (account_id,),
+                )
+                flash(
+                    "Request approved. The applicant can now request the email verification link "
+                    "from their registration page.",
+                    "success",
+                )
+            else:
+                flash("Request rejected.", "success")
+    return redirect(url_for("admin_role_requests_page"))
+
+
+@app.post("/registration/send-verification")
+def send_approved_role_verification():
+    account_id = session.get("pending_role_request_account_id")
+    if not account_id:
+        flash("Submit an Admin or Superadmin registration request first.", "error")
+        return redirect(url_for("registration_page"))
+
+    with database() as connection:
+        applicant = connection.execute(
+            "SELECT a.email, a.is_verified, r.status "
+            "FROM accounts AS a JOIN admin_role_requests AS r ON r.account_id = a.id "
+            "WHERE a.id = ?",
+            (account_id,),
+        ).fetchone()
+    if not applicant:
+        session.pop("pending_role_request_account_id", None)
+        flash("Registration request was not found. Please register again.", "error")
+        return redirect(url_for("registration_page"))
+    if applicant["status"] != "approved":
+        flash("A Superadmin must approve your request before email verification.", "error")
+        return redirect(url_for("registration_page"))
+    if applicant["is_verified"]:
+        flash("This email is already verified. You can log in.", "success")
+        return redirect(url_for("registration_page"))
+
+    try:
+        issue_verification(applicant["email"])
+    except Exception:
+        logging.exception("Approved elevated-role verification email could not be sent")
+        flash(
+            "Verification email could not be sent. Check the SMTP settings and try again.",
+            "error",
+        )
+    else:
+        flash("Verification link sent. Check your email and open the link to activate your requested role.", "success")
+    return redirect(url_for("registration_page"))
 
 
 @app.post("/register")
@@ -1051,8 +1967,8 @@ def register():
     password = request.form.get("password", "")
     confirm_password = request.form.get("confirm_password", "")
 
-    if role != "user":
-        flash("Admin and Superadmin accounts must be provisioned by an authorized owner.", "error")
+    if role not in ("user", "admin", "superadmin"):
+        flash("Choose User, Admin, or Superadmin.", "error")
         return redirect(url_for("registration_page"))
     if not full_name or "@" not in email or len(password) < 8:
         flash("Enter a valid name and email, and a password of at least 8 characters.", "error")
@@ -1063,12 +1979,21 @@ def register():
 
     try:
         with database() as connection:
-            connection.execute(
+            result = connection.execute(
                 "INSERT INTO accounts (full_name, email, phone, password_hash, role, created_at) "
                 "VALUES (?, ?, ?, ?, 'user', ?)",
                 (full_name, email, phone, generate_password_hash(password), int(time.time())),
             )
-        issue_verification(email)
+            if role in ("admin", "superadmin"):
+                connection.execute(
+                    "INSERT INTO admin_role_requests (account_id, requested_role, status, requested_at) "
+                    "VALUES (?, ?, 'pending', ?)",
+                    (result.lastrowid, role, int(time.time())),
+                )
+        if role in ("admin", "superadmin"):
+            session["pending_role_request_account_id"] = result.lastrowid
+        if role == "user":
+            issue_verification(email)
     except sqlite3.IntegrityError:
         flash(
             "An account with this email already exists. If it is unverified, use the resend form below; otherwise log in.",
@@ -1084,7 +2009,15 @@ def register():
         )
         return redirect(url_for("registration_page"))
 
-    flash("Account created. Check your inbox for the verification link; it expires in 30 minutes.", "success")
+    if role in ("admin", "superadmin"):
+        flash(
+            f"Your {role.title()} request was submitted. A Superadmin must approve it before "
+            "you can request the email verification link.",
+            "success",
+        )
+        return redirect(url_for("registration_page"))
+    else:
+        flash("Account created. Check your inbox for the verification link; it expires in 30 minutes.", "success")
     return redirect(url_for("login_page"))
 
 
@@ -1098,16 +2031,19 @@ def resend_verification():
 
     with database() as connection:
         account = connection.execute(
-            "SELECT is_verified FROM accounts WHERE email = ?", (email,)
+            "SELECT a.is_verified, r.status AS request_status "
+            "FROM accounts AS a LEFT JOIN admin_role_requests AS r ON r.account_id = a.id "
+            "WHERE a.email = ?",
+            (email,),
         ).fetchone()
-    if account and not account["is_verified"]:
+    if account and not account["is_verified"] and account["request_status"] in (None, "approved"):
         try:
             issue_verification(email)
         except Exception:
             logging.exception("Verification email resend failed")
     flash(
-        "If that address has an unverified BidMart account, check your inbox and spam folder for a new link. "
-        "If it does not arrive, check the SMTP settings and the app's server log.",
+        "If that address has an eligible unverified BidMart account, check your inbox and spam folder for a "
+        "verification link. Elevated-role requests must be approved before verification can be sent.",
         "success",
     )
     return redirect(url_for("registration_page"))
@@ -1117,13 +2053,27 @@ def resend_verification():
 def verify_email(token):
     token_hash = hash_token(token)
     with database() as connection:
-        result = connection.execute(
-            "UPDATE accounts SET is_verified = 1, verification_token_hash = NULL, "
-            "verification_expires_at = NULL WHERE verification_token_hash = ? "
-            "AND verification_expires_at > ? AND is_verified = 0",
+        account = connection.execute(
+            "SELECT a.id, r.requested_role, r.status AS request_status "
+            "FROM accounts AS a LEFT JOIN admin_role_requests AS r ON r.account_id = a.id "
+            "WHERE a.verification_token_hash = ? AND a.verification_expires_at > ? "
+            "AND a.is_verified = 0",
             (token_hash, int(time.time())),
-        )
-    if result.rowcount == 1:
+        ).fetchone()
+        if account and account["request_status"] == "pending":
+            flash("A Superadmin must approve this elevated-role request before email verification.", "error")
+            return redirect(url_for("login_page"))
+        if account and account["request_status"] == "rejected":
+            flash("This elevated-role request was rejected. Contact BidMart support for help.", "error")
+            return redirect(url_for("login_page"))
+        if account:
+            connection.execute(
+                "UPDATE accounts SET is_verified = 1, role = COALESCE(?, role), "
+                "verification_token_hash = NULL, verification_expires_at = NULL "
+                "WHERE id = ? AND is_verified = 0",
+                (account["requested_role"], account["id"]),
+            )
+    if account:
         flash("Email verified. You can now log in.", "success")
     else:
         flash("That verification link is invalid, expired, or already used.", "error")
@@ -1211,11 +2161,11 @@ def login():
         next_url = ""
     with database() as connection:
         account = connection.execute(
-            "SELECT id, email, full_name, password_hash, is_verified FROM accounts WHERE email = ?",
+            "SELECT id, email, full_name, password_hash, is_verified, role, is_active FROM accounts WHERE email = ?",
             (email,),
         ).fetchone()
 
-    if (not account or not account["is_verified"]
+    if (not account or not account["is_active"] or not account["is_verified"]
             or not check_password_hash(account["password_hash"], password)):
         flash("Login failed. Check your details and verify your email before signing in.", "error")
         return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
@@ -1225,6 +2175,7 @@ def login():
     session["user_id"] = account["id"]
     session["user_email"] = account["email"]
     session["user_name"] = account["full_name"]
+    session["user_role"] = account["role"]
     if checkout_draft:
         session["checkout_draft"] = checkout_draft
     flash("You are logged in.", "success")

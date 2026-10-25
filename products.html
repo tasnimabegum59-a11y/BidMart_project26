@@ -19,6 +19,9 @@
                     <p class="tagline">OUR COLLECTION</p>
                     <h1>All Products</h1>
                     <p>Browse products from across our collection, with discounts and regular prices clearly shown.</p>
+                    {% if current_user_role in ("admin", "superadmin") %}
+                    <a class="catalog-management-link" href="{{ url_for('admin_dashboard') }}#products">Manage products</a>
+                    {% endif %}
                 </div>
 
                 <div class="product-grid catalog-grid">
@@ -61,6 +64,9 @@
                                         {% if product.stock %}🛒 Buy Now{% else %}Out of stock{% endif %}
                                     </button>
                                 </form>
+                                {% if current_user_role in ("admin", "superadmin") %}
+                                <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
+                                {% endif %}
                             </div>
                         </div>
                     </article>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Check your BidMart online payment result.">
+    <title>Payment status | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "products" %}
+    {% include "site_header.html" %}
+    <main class="payment-result-page">
+        <section class="payment-result-card">
+            <span class="payment-result-mark{% if order.payment_status == 'paid' %} is-paid{% elif order.payment_status == 'failed' %} is-failed{% endif %}" aria-hidden="true">
+                {% if order.payment_status == "paid" %}✓{% elif order.payment_status == "failed" %}×{% else %}…{% endif %}
+            </span>
+            <p class="product-detail-eyebrow">SSLCOMMERZ PAYMENT</p>
+            {% if order.payment_status == "paid" %}
+            <h1>Payment verified</h1>
+            <p>Your payment has been confirmed securely. The store can now prepare your order.</p>
+            {% elif verification_pending %}
+            <h1>Payment verification in progress</h1>
+            <p>We could not verify the payment response yet. Do not pay again; refresh this page shortly or contact the store with your order number.</p>
+            {% elif order.payment_status == "failed" %}
+            <h1>Payment not completed</h1>
+            <p>No successful payment is recorded. If your bank shows a debit, contact the store before trying again.</p>
+            {% else %}
+            <h1>Payment is being confirmed</h1>
+            <p>Your secure payment result has not arrived yet. Please wait a moment and refresh this page.</p>
+            {% endif %}
+            <div class="payment-result-summary">
+                <span>Order reference</span><strong>{{ order.order_number }}</strong>
+                <span>Amount</span><strong>৳ {{ "{:,}".format(order.total) }}</strong>
+                <span>Payment status</span><strong>{{ order.payment_status|title }}</strong>
+            </div>
+            <div class="payment-result-actions">
+                {% if order.payment_status != "paid" and order.payment_status != "failed" %}
+                <a class="admin-action-secondary" href="{{ url_for('payment_result', order_number=order.order_number) }}">Refresh payment status</a>
+                {% endif %}
+                <a class="checkout-submit" href="{{ url_for('products_page') }}">Continue shopping</a>
+                <a class="order-continue-link" href="{{ url_for('home') }}">Back to home</a>
+            </div>
+        </section>
+    </main>
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+</body>
+</html>
