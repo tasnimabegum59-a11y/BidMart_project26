@@ -148,204 +148,53 @@
             </div> <!-- Section heading শেষ -->
 
             <div class="product-grid" id="productGrid">
+                {% for product in featured_products %}
+                {% set stock = product_inventory.get(product.slug, 0) %}
                 <article class="product-card">
                     <div class="product-main">
                         <div class="product-visual">
-                            <span class="product-badge badge-bestseller">⚡ BEST SELLER</span>
-                            <img src="{{ url_for('static', filename='products/iphone-14-pro.png') }}" alt="iPhone 14 Pro Max in purple">
+                            <span class="product-badge badge-bestseller">FEATURED</span>
+                            {% if product.image %}
+                            <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
+                            {% else %}
+                            <span class="product-image-icon" aria-hidden="true">{{ product.icon }}</span>
+                            {% endif %}
                         </div>
                         <div class="product-info">
-                            <p class="category">Smartphones</p>
-                            <h3>iPhone 14 Pro Max <span>(256GB)</span></h3>
-                            <p class="product-rating" aria-label="Rated 4.8 out of 5, from 1,200 reviews"><span aria-hidden="true">★★★★★</span> 4.8 (1.2k reviews)</p>
-                            <p class="product-description">Powerful. Premium. Perfect.</p>
+                            <p class="category">{{ product.category }}</p>
+                            <h3>{{ product.name }}</h3>
+                            <p class="product-rating" aria-label="Rated {{ product.rating }} out of 5, from {{ product.reviews }} reviews"><span aria-hidden="true">★★★★★</span> {{ product.rating }} ({{ product.reviews }} reviews)</p>
+                            <p class="product-description">{{ product.description }}</p>
+                            {% if product.features %}
                             <ul class="product-features">
-                                <li>A16 Bionic chip</li>
-                                <li>48MP Pro camera</li>
-                                <li>All-day battery</li>
+                                {% for feature in product.features %}
+                                <li>{{ feature }}</li>
+                                {% endfor %}
                             </ul>
+                            {% endif %}
                         </div>
                     </div>
                     <div class="product-purchase">
-                        <span class="product-discount">★ 26% OFF</span>
-                        <p class="old-price">৳ 1,25,000</p>
-                        <p class="price">৳ 92,500</p>
+                        {% if product.old_price and product.old_price > product.price %}
+                        <span class="product-discount">★ {{ (((product.old_price - product.price) / product.old_price) * 100)|round|int }}% OFF</span>
+                        <p class="old-price">৳ {{ "{:,}".format(product.old_price) }}</p>
+                        {% endif %}
+                        <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
                         <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='iphone-14-pro-max-256gb') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
+                            <a href="{{ url_for('product_details_page', slug=product.slug) }}" class="product-btn product-details-btn">ⓘ Know Details</a>
                             <form method="post" action="{{ url_for('start_checkout') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="iphone-14-pro-max-256gb">
+                                <input type="hidden" name="product_slug" value="{{ product.slug }}">
                                 <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('iphone-14-pro-max-256gb', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('iphone-14-pro-max-256gb', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
+                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if stock < 1 %}disabled{% endif %}>{% if stock > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
                             </form>
+                            {% if current_user_role in ("admin", "superadmin") %}
+                            <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
+                            {% endif %}
                         </div>
                     </div>
                 </article>
-                <article class="product-card">
-                    <div class="product-main">
-                        <div class="product-visual">
-                            <span class="product-badge badge-hot">★ HOT DEAL</span>
-                            <img src="{{ url_for('static', filename='products/smart-watch.png') }}" alt="Black smart watch">
-                        </div>
-                        <div class="product-info">
-                            <p class="category">Wearables</p>
-                            <h3>Smart Watch <span>(Bluetooth Calling)</span></h3>
-                            <p class="product-rating" aria-label="Rated 4.6 out of 5, from 850 reviews"><span aria-hidden="true">★★★★★</span> 4.6 (850 reviews)</p>
-                            <p class="product-description">Stay connected, stay fit.</p>
-                            <ul class="product-features">
-                                <li>Bluetooth calling</li>
-                                <li>Heart rate monitor</li>
-                                <li>IP68 waterproof</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="product-purchase">
-                        <span class="product-discount">★ 25% OFF</span>
-                        <p class="old-price">৳ 4,000</p>
-                        <p class="price">৳ 2,999</p>
-                        <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='smart-watch-bluetooth-calling') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="smart-watch-bluetooth-calling">
-                                <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('smart-watch-bluetooth-calling', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('smart-watch-bluetooth-calling', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
-                            </form>
-                        </div>
-                    </div>
-                </article>
-                <article class="product-card">
-                    <div class="product-main">
-                        <div class="product-visual">
-                            <span class="product-badge badge-special">♨ SPECIAL OFFER</span>
-                            <img src="{{ url_for('static', filename='products/jbl-headphones.png') }}" alt="Black JBL wireless headphones">
-                        </div>
-                        <div class="product-info">
-                            <p class="category">Audio</p>
-                            <h3>JBL Wireless Headphones</h3>
-                            <p class="product-rating" aria-label="Rated 4.7 out of 5, from 2,400 reviews"><span aria-hidden="true">★★★★★</span> 4.7 (2.4k reviews)</p>
-                            <p class="product-description">Feel the bass, feel the music.</p>
-                            <ul class="product-features">
-                                <li>Pure bass sound</li>
-                                <li>Up to 40 hours playtime</li>
-                                <li>Bluetooth 5.3</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="product-purchase">
-                        <span class="product-discount">★ 40% OFF</span>
-                        <p class="old-price">৳ 5,000</p>
-                        <p class="price">৳ 2,999</p>
-                        <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='jbl-wireless-headphones') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="jbl-wireless-headphones">
-                                <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('jbl-wireless-headphones', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('jbl-wireless-headphones', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
-                            </form>
-                        </div>
-                    </div>
-                </article>
-                <article class="product-card">
-                    <div class="product-main">
-                        <div class="product-visual">
-                            <span class="product-badge badge-special">★ NEW ARRIVAL</span>
-                            <img src="{{ url_for('static', filename='products/casual-sneakers.svg') }}" alt="Blue and white casual sneaker">
-                        </div>
-                        <div class="product-info">
-                            <p class="category">Fashion</p>
-                            <h3>Casual Sneakers</h3>
-                            <p class="product-rating" aria-label="Rated 4.5 out of 5, from 420 reviews"><span aria-hidden="true">★★★★★</span> 4.5 (420 reviews)</p>
-                            <p class="product-description">Everyday comfort, fresh style.</p>
-                            <ul class="product-features">
-                                <li>Lightweight design</li>
-                                <li>Breathable fabric</li>
-                                <li>Flexible sole</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="product-purchase">
-                        <span class="product-discount">★ 20% OFF</span>
-                        <p class="old-price">৳ 2,500</p>
-                        <p class="price">৳ 2,000</p>
-                        <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='casual-sneakers') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="casual-sneakers">
-                                <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('casual-sneakers', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('casual-sneakers', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
-                            </form>
-                        </div>
-                    </div>
-                </article>
-                <article class="product-card">
-                    <div class="product-main">
-                        <div class="product-visual">
-                            <span class="product-badge badge-hot">★ HOT DEAL</span>
-                            <img src="{{ url_for('static', filename='products/wireless-earbuds.svg') }}" alt="Wireless earbuds with charging case">
-                        </div>
-                        <div class="product-info">
-                            <p class="category">Audio</p>
-                            <h3>Wireless Earbuds</h3>
-                            <p class="product-rating" aria-label="Rated 4.6 out of 5, from 680 reviews"><span aria-hidden="true">★★★★★</span> 4.6 (680 reviews)</p>
-                            <p class="product-description">Clear sound, all day long.</p>
-                            <ul class="product-features">
-                                <li>Noise reduction</li>
-                                <li>Touch controls</li>
-                                <li>Charging case included</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="product-purchase">
-                        <span class="product-discount">★ 26% OFF</span>
-                        <p class="old-price">৳ 2,500</p>
-                        <p class="price">৳ 1,850</p>
-                        <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='wireless-earbuds') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="wireless-earbuds">
-                                <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('wireless-earbuds', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('wireless-earbuds', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
-                            </form>
-                        </div>
-                    </div>
-                </article>
-                <article class="product-card">
-                    <div class="product-main">
-                        <div class="product-visual">
-                            <span class="product-badge badge-bestseller">⚡ BEST SELLER</span>
-                            <img src="{{ url_for('static', filename='products/digital-camera.svg') }}" alt="Compact digital camera">
-                        </div>
-                        <div class="product-info">
-                            <p class="category">Photography</p>
-                            <h3>Compact Digital Camera</h3>
-                            <p class="product-rating" aria-label="Rated 4.8 out of 5, from 315 reviews"><span aria-hidden="true">★★★★★</span> 4.8 (315 reviews)</p>
-                            <p class="product-description">Capture every moment in detail.</p>
-                            <ul class="product-features">
-                                <li>4K video recording</li>
-                                <li>Optical image focus</li>
-                                <li>Rechargeable battery</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div class="product-purchase">
-                        <span class="product-discount">★ 16% OFF</span>
-                        <p class="old-price">৳ 22,000</p>
-                        <p class="price">৳ 18,500</p>
-                        <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug='compact-digital-camera') }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                <input type="hidden" name="product_slug" value="compact-digital-camera">
-                                <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('compact-digital-camera', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('compact-digital-camera', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
-                            </form>
-                        </div>
-                    </div>
-                </article>
+                {% endfor %}
             </div>
             <button
                 class="show-all-products"

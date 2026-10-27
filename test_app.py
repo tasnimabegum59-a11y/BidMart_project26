@@ -179,6 +179,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'Up to', home.data)
         self.assertIn(b'40% OFF', home.data)
         self.assertIn(b'href="/offers">Shop Offers', home.data)
+        self.assertNotIn(b"Manage this product", home.data)
         self.assertEqual(home.data.count(b'class="promo-deal-product"'), 0)
         self.assertNotIn(b'src="/static/live-auction-card.png"', home.data)
         self.assertNotIn(b'src="/static/summer-savings-card.png"', home.data)
@@ -703,6 +704,171 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'<nav class="nav-links" aria-label="Main navigation">', response.data)
                 self.assertIn(b'href="/auctions">Auctions</a>', response.data)
 
+    def test_purchase_notifications_reach_buyer_admin_and_superadmin(self):
+        self.assertEqual(self.start_checkout().status_code, 302)
+        with bidmart.database() as connection:
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", "purchase-admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+            superadmin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+                ("Root Admin", "purchase-root@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+
+        checkout = self.client.get("/checkout")
+        placed = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="cod"),
+        )
+        self.assertEqual(placed.status_code, 302)
+
+        with bidmart.database() as connection:
+            notifications = connection.execute(
+                "SELECT id, account_id, title, message FROM notifications ORDER BY account_id"
+            ).fetchall()
+        by_account = {row["account_id"]: row for row in notifications}
+        with self.client.session_transaction() as session:
+            buyer_id = session["user_id"]
+        self.assertIn("Order placed", by_account[buyer_id]["title"])
+        self.assertIn("New order received", by_account[admin.lastrowid]["title"])
+        self.assertIn("New order received", by_account[superadmin.lastrowid]["title"])
+
+        inbox = self.client.get("/notifications")
+        self.assertEqual(inbox.status_code, 200)
+        self.assertIn(b"Order placed", inbox.data)
+        self.assertIn(b"Notifications, 1 unread", self.client.get("/").data)
+        inbox_data = self.client.get("/notifications").data
+        self.assertIn(b"Mark all as read", inbox_data)
+        admin_notification_id = by_account[admin.lastrowid]["id"]
+        other_user_notification = self.client.get(
+            f"/notifications/{admin_notification_id}/open"
+        )
+        self.assertEqual(other_user_notification.status_code, 404)
+
+        with bidmart.database() as connection:
+            own_notification_id = connection.execute(
+                "SELECT id FROM notifications WHERE account_id = ?",
+                (buyer_id,),
+            ).fetchone()["id"]
+        opened = self.client.get(f"/notifications/{own_notification_id}/open")
+        self.assertEqual(opened.status_code, 302)
+        self.assertEqual(self.client.get("/notifications").data.count(b'class="notification-card is-unread"'), 0)
+
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = "purchase-admin@example.invalid"
+            session["user_name"] = "Store Admin"
+        admin_inbox = self.client.get("/notifications")
+        marked_all = self.client.post(
+            "/notifications/read-all",
+            data={"csrf_token": self.csrf_from(admin_inbox)},
+        )
+        self.assertEqual(marked_all.status_code, 302)
+        with bidmart.database() as connection:
+            admin_unread_count = connection.execute(
+                "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+                (admin.lastrowid,),
+            ).fetchone()[0]
+        self.assertEqual(admin_unread_count, 0)
+
+    def test_my_profile_updates_account_details_and_password_for_any_user(self):
+        self.assertEqual(self.client.get("/profile").status_code, 403)
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Profile Owner", self.email, "01700000000", generate_password_hash("old-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = account.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Profile Owner"
+
+        profile = self.client.get("/profile")
+        self.assertEqual(profile.status_code, 200)
+        self.assertIn(b"Profile information", profile.data)
+        self.assertIn(b'name="full_name"', profile.data)
+        self.assertIn(b'value="Profile Owner"', profile.data)
+        self.assertIn(b'name="email" type="email" autocomplete="email" value="flow-test@example.invalid"', profile.data)
+        self.assertIn(b'href="/profile" aria-current="page"', profile.data)
+        self.assertIn(b"My Profile", profile.data)
+        csrf = self.csrf_from(profile)
+        updated = self.client.post("/profile/update", data={
+            "csrf_token": csrf,
+            "full_name": "Updated Profile Owner",
+            "email": self.email,
+            "phone": "01711111111",
+            "current_password": "old-password",
+            "new_password": "new-secure-password",
+            "confirm_password": "new-secure-password",
+            "role": "superadmin",
+        })
+        self.assertEqual(updated.status_code, 302)
+        with bidmart.database() as connection:
+            saved_account = connection.execute(
+                "SELECT full_name, email, phone, password_hash, role FROM accounts WHERE id = ?",
+                (account.lastrowid,),
+            ).fetchone()
+        self.assertEqual(saved_account["full_name"], "Updated Profile Owner")
+        self.assertEqual(saved_account["email"], self.email)
+        self.assertEqual(saved_account["phone"], "01711111111")
+        self.assertEqual(saved_account["role"], "user")
+        self.assertTrue(bidmart.check_password_hash(saved_account["password_hash"], "new-secure-password"))
+        self.assertIn(b"Your profile has been updated.", self.client.get("/profile").data)
+
+    def test_my_profile_email_change_requires_password_and_new_email_verification(self):
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Profile Owner", self.email, generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = account.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Profile Owner"
+
+        csrf = self.csrf_from(self.client.get("/profile"))
+        no_password = self.client.post("/profile/update", data={
+            "csrf_token": csrf,
+            "full_name": "Profile Owner",
+            "email": "new-address@example.invalid",
+            "phone": "",
+        })
+        self.assertEqual(no_password.status_code, 302)
+        self.assertIn(b"current password", self.client.get("/profile").data)
+
+        with patch.dict(os.environ, {
+            "SMTP_USERNAME": "test@example.invalid",
+            "SMTP_PASSWORD": "test-password",
+            "SMTP_FROM": "test@example.invalid",
+        }), patch("app.issue_verification") as send_verification:
+            changed = self.client.post("/profile/update", data={
+                "csrf_token": csrf,
+                "full_name": "Profile Owner",
+                "email": "new-address@example.invalid",
+                "phone": "",
+                "current_password": "secure-password",
+            })
+        self.assertEqual(changed.status_code, 302)
+        self.assertEqual(changed.headers["Location"], "/login.html")
+        send_verification.assert_called_once_with("new-address@example.invalid")
+        with bidmart.database() as connection:
+            saved_account = connection.execute(
+                "SELECT email, is_verified, role FROM accounts WHERE id = ?",
+                (account.lastrowid,),
+            ).fetchone()
+        self.assertEqual(saved_account["email"], "new-address@example.invalid")
+        self.assertEqual(saved_account["is_verified"], 0)
+        self.assertEqual(saved_account["role"], "user")
+        with self.client.session_transaction() as session:
+            self.assertNotIn("user_id", session)
+
     def test_admin_dashboard_manages_products_inventory_and_auctions(self):
         with bidmart.database() as connection:
             admin = connection.execute(
@@ -725,6 +891,38 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"Manage products", product_catalog.data)
         self.assertIn(b"Manage this product", product_catalog.data)
         self.assertIn(b"#product-casual-sneakers", product_catalog.data)
+        home = self.client.get("/")
+        self.assertEqual(home.data.count(b">Manage this product</a>"), 6)
+        self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', home.data)
+        self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', self.client.get(
+            "/products/iphone-14-pro-max-256gb"
+        ).data)
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE catalog_products SET name = ?, category = ?, description = ?, price = ?, "
+                "old_price = ?, image = ?, features_json = ? WHERE slug = ?",
+                (
+                    "Admin Updated iPhone",
+                    "Admin Electronics",
+                    "Updated homepage description",
+                    1000,
+                    2000,
+                    "uploads/products/updated-phone.webp",
+                    '["Admin-updated feature"]',
+                    "iphone-14-pro-max-256gb",
+                ),
+            )
+        updated_home = self.client.get("/")
+        for updated_value in (
+            b"Admin Updated iPhone",
+            b"Admin Electronics",
+            b"Updated homepage description",
+            b"Admin-updated feature",
+            "৳ 1,000".encode(),
+            "৳ 2,000".encode(),
+            b"/static/uploads/products/updated-phone.webp",
+        ):
+            self.assertIn(updated_value, updated_home.data)
         auction_catalog = self.client.get("/auctions")
         self.assertIn(b"Manage auctions", auction_catalog.data)
         self.assertIn(b"Close auction", auction_catalog.data)
@@ -762,6 +960,8 @@ class AuthenticationFlowTests(unittest.TestCase):
 
         dashboard = self.client.get("/admin/dashboard")
         self.assertEqual(dashboard.data.count(b'id="adminProductForm"'), 1)
+        self.assertIn(b'window.location.hash.startsWith("#product-")', dashboard.data)
+        self.assertIn(b'document.getElementById("manageProducts").open = true', dashboard.data)
         self.assertEqual(dashboard.data.count(b'id="adminAuctionForm"'), 1)
         self.assertIn(b'id="manageProducts"', dashboard.data)
         self.assertIn(b"Manage existing products", dashboard.data)

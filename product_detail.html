@@ -111,6 +111,9 @@
                         {% endfor %}
                     </ul>
                     <p class="product-detail-sku">Listing ID: BM-{{ product.slug|upper }}</p>
+                    {% if current_user_role in ("admin", "superadmin") %}
+                    <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
+                    {% endif %}
                 </div>
             </section>
 

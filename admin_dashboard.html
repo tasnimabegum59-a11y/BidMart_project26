@@ -183,6 +183,15 @@
                     });
 
                     cancel.addEventListener("click", resetProductForm);
+
+                    if (window.location.hash.startsWith("#product-")) {
+                        const productCard = document.getElementById(window.location.hash.slice(1));
+                        const editButton = productCard && productCard.querySelector(".admin-product-edit-button");
+                        if (editButton) {
+                            document.getElementById("manageProducts").open = true;
+                            editButton.click();
+                        }
+                    }
                 })();
             </script>
         </section>

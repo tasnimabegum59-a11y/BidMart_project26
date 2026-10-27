@@ -101,6 +101,8 @@ AUCTION_LISTINGS = (
         "minimum_increment": 500,
     },
 )
+
+
 PRODUCT_CATALOG = (
     {
         "slug": "iphone-14-pro-max-256gb",
@@ -332,6 +334,21 @@ def initialize_database():
         if "is_active" not in columns:
             connection.execute("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         connection.execute(
+            """CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                read_at INTEGER
+            )"""
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS notifications_account_unread "
+            "ON notifications(account_id, read_at, created_at DESC)"
+        )
+        connection.execute(
             """CREATE TABLE IF NOT EXISTS admin_role_requests (
                 account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
                 requested_role TEXT NOT NULL DEFAULT 'admin'
@@ -535,6 +552,7 @@ def csrf_context():
     current_user_email = None
     current_user_name = None
     pending_role_request_count = 0
+    unread_notification_count = 0
     if session.get("user_id"):
         with database() as connection:
             account = connection.execute(
@@ -544,6 +562,10 @@ def csrf_context():
                 user_role = account["role"]
                 current_user_name = account["full_name"]
                 current_user_email = account["email"]
+                unread_notification_count = connection.execute(
+                    "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+                    (session["user_id"],),
+                ).fetchone()[0]
                 if user_role == "superadmin":
                     pending_role_request_count = connection.execute(
                         "SELECT COUNT(*) FROM admin_role_requests WHERE status = 'pending'"
@@ -554,7 +576,131 @@ def csrf_context():
         "current_user_email": current_user_email,
         "current_user_name": current_user_name,
         "pending_role_request_count": pending_role_request_count,
+        "unread_notification_count": unread_notification_count,
     }
+
+
+def create_notification(connection, account_id, title, message, target_url, created_at=None):
+    if not account_id:
+        return
+    connection.execute(
+        "INSERT INTO notifications (account_id, title, message, target_url, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (account_id, title, message, target_url, created_at or int(time.time())),
+    )
+
+
+def notify_roles(
+    connection, roles, title, message, target_url, *, exclude_account_id=None, created_at=None
+):
+    placeholders = ", ".join("?" for _ in roles)
+    if not placeholders:
+        return
+    recipients = connection.execute(
+        f"SELECT id FROM accounts WHERE role IN ({placeholders}) AND is_active = 1",
+        tuple(roles),
+    ).fetchall()
+    for recipient in recipients:
+        if recipient["id"] != exclude_account_id:
+            create_notification(
+                connection, recipient["id"], title, message, target_url, created_at
+            )
+
+
+def notify_staff(connection, title, message, target_url, *, exclude_account_id=None, created_at=None):
+    notify_roles(
+        connection,
+        ("admin", "superadmin"),
+        title,
+        message,
+        target_url,
+        exclude_account_id=exclude_account_id,
+        created_at=created_at,
+    )
+
+
+def notify_superadmins(
+    connection, title, message, target_url, *, exclude_account_id=None, created_at=None
+):
+    notify_roles(
+        connection,
+        ("superadmin",),
+        title,
+        message,
+        target_url,
+        exclude_account_id=exclude_account_id,
+        created_at=created_at,
+    )
+
+
+def notify_auction_bidders(connection, slug, title, message, target_url, created_at=None):
+    bidders = connection.execute(
+        "SELECT DISTINCT auction_bids.account_id "
+        "FROM auction_bids JOIN auctions ON auctions.id = auction_bids.auction_id "
+        "WHERE auctions.slug = ?",
+        (slug,),
+    ).fetchall()
+    for bidder in bidders:
+        create_notification(
+            connection, bidder["account_id"], title, message, target_url, created_at
+        )
+
+
+@app.get("/notifications")
+def notifications_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        notifications = connection.execute(
+            "SELECT id, title, message, target_url, created_at, read_at "
+            "FROM notifications WHERE account_id = ? ORDER BY created_at DESC, id DESC LIMIT 100",
+            (account_id,),
+        ).fetchall()
+        unread_count = connection.execute(
+            "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+            (account_id,),
+        ).fetchone()[0]
+    return render_template(
+        "notifications.html",
+        notifications=notifications,
+        unread_notification_count=unread_count,
+        active_page="notifications",
+    )
+
+
+@app.get("/notifications/<int:notification_id>/open")
+def open_notification(notification_id):
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        notification = connection.execute(
+            "SELECT target_url FROM notifications WHERE id = ? AND account_id = ?",
+            (notification_id, account_id),
+        ).fetchone()
+        if not notification:
+            abort(404)
+        connection.execute(
+            "UPDATE notifications SET read_at = COALESCE(read_at, ?) "
+            "WHERE id = ? AND account_id = ?",
+            (int(time.time()), notification_id, account_id),
+        )
+    return redirect(notification["target_url"])
+
+
+@app.post("/notifications/read-all")
+def mark_all_notifications_read():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        connection.execute(
+            "UPDATE notifications SET read_at = ? WHERE account_id = ? AND read_at IS NULL",
+            (int(time.time()), account_id),
+        )
+    flash("All notifications marked as read.", "success")
+    return redirect(url_for("notifications_page"))
 
 
 @app.template_filter("datetime")
@@ -598,6 +744,8 @@ def protect_post_requests():
                 "request_password_reset": "forgot_password_page",
                 "reset_password": "forgot_password_page",
                 "logout": "home",
+                "update_profile": "profile_page",
+                "mark_all_notifications_read": "notifications_page",
                 "place_bid": "auction_details",
                 "start_checkout": "products_page",
                 "apply_checkout_coupon": "checkout_page",
@@ -700,6 +848,12 @@ def home():
             row["product_slug"]: row["stock"]
             for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
         }
+    products_by_slug = {product["slug"]: product for product in get_products()}
+    featured_products = [
+        products_by_slug[product["slug"]]
+        for product in PRODUCT_CATALOG[:6]
+        if product["slug"] in products_by_slug
+    ]
     auction, _ = get_auction(DEMO_AUCTION_SLUG)
     featured_offers = get_offer_listings()[:3]
     max_offer_discount = max(
@@ -712,6 +866,7 @@ def home():
         featured_offers=featured_offers,
         max_offer_discount=max_offer_discount,
         product_inventory=product_inventory,
+        featured_products=featured_products,
         now=int(time.time()),
     )
 
@@ -981,6 +1136,17 @@ def complete_sslcommerz_payment(tran_id, val_id):
         current_state = connection.execute(
             "SELECT payment_status FROM orders WHERE id = ?", (order["id"],)
         ).fetchone()
+        if result.rowcount == 1:
+            message = f"Payment received for order {order['order_number']}. Your order is confirmed."
+            create_notification(
+                connection, order["account_id"], "Payment confirmed", message,
+                url_for("notifications_page"),
+            )
+            notify_staff(
+                connection, "Order payment received",
+                f"Order {order['order_number']} has been paid and confirmed.",
+                url_for("admin_dashboard") + "#orders",
+            )
     return result.rowcount == 1 or current_state["payment_status"] == "paid"
 
 
@@ -1003,15 +1169,32 @@ def release_order_stock(connection, order_id):
 
 def release_expired_online_orders(connection, now):
     expired = connection.execute(
-        "SELECT id FROM orders WHERE payment_method != 'cod' AND payment_status != 'paid' "
+        "SELECT id, account_id, order_number FROM orders "
+        "WHERE payment_method != 'cod' AND payment_status != 'paid' "
         "AND stock_reserved = 1 AND created_at <= ?",
         (now - 30 * 60,),
     ).fetchall()
     for order in expired:
-        connection.execute(
+        result = connection.execute(
             "UPDATE orders SET payment_status = 'failed' WHERE id = ? AND payment_status != 'paid'",
             (order["id"],),
         )
+        if result.rowcount:
+            create_notification(
+                connection,
+                order["account_id"],
+                "Payment session expired",
+                f"The payment window for order {order['order_number']} expired. Please place the order again.",
+                url_for("notifications_page"),
+                now,
+            )
+            notify_staff(
+                connection,
+                "Order payment session expired",
+                f"The payment window for order {order['order_number']} expired.",
+                url_for("admin_dashboard") + "#orders",
+                created_at=now,
+            )
         release_order_stock(connection, order["id"])
 
 
@@ -1038,11 +1221,27 @@ def sslcommerz_ipn():
 def sslcommerz_fail():
     tran_id = request.form.get("tran_id", "")
     with database() as connection:
+        order = connection.execute(
+            "SELECT id, account_id, order_number FROM orders "
+            "WHERE order_number = ? AND payment_method != 'cod' AND payment_status = 'unpaid'",
+            (tran_id,),
+        ).fetchone()
         result = connection.execute(
             "UPDATE orders SET payment_status = 'failed' "
             "WHERE order_number = ? AND payment_method != 'cod' AND payment_status = 'unpaid'",
             (tran_id,),
         )
+        if result.rowcount and order:
+            create_notification(
+                connection, order["account_id"], "Payment failed",
+                f"Payment for order {order['order_number']} was not completed. You can try checkout again.",
+                url_for("notifications_page"),
+            )
+            notify_staff(
+                connection, "Order payment failed",
+                f"Payment for order {order['order_number']} was not completed.",
+                url_for("admin_dashboard") + "#orders",
+            )
     return redirect(url_for("payment_result", order_number=tran_id))
 
 
@@ -1272,6 +1471,24 @@ def place_checkout_order():
             VALUES (?, ?, ?, ?, ?, NULL)""",
             (order_id, product["slug"], product["name"], quantity, product["price"]),
         )
+        create_notification(
+            connection,
+            account_id,
+            "Order placed",
+            f"Order {order_number} was placed. "
+            + ("It is confirmed and awaiting payment on delivery."
+               if payment_method == "cod" else "Complete payment to confirm your order."),
+            url_for("notifications_page"),
+            now,
+        )
+        notify_staff(
+            connection,
+            "New order received",
+            f"{name} placed order {order_number} for {product['name']} × {quantity}.",
+            url_for("admin_dashboard") + "#orders",
+            exclude_account_id=account_id,
+            created_at=now,
+        )
 
     if payment_method != "cod":
         order = {
@@ -1474,6 +1691,11 @@ def place_bid(slug):
             flash(f"Your bid must be at least ৳ {minimum_bid:,}.", "error")
             return redirect(auction_url)
 
+        previous_leader = connection.execute(
+            "SELECT account_id, amount FROM auction_bids "
+            "WHERE auction_id = ? ORDER BY amount DESC, created_at DESC, id DESC LIMIT 1",
+            (auction["id"],),
+        ).fetchone()
         updated = connection.execute(
             "UPDATE auctions SET current_bid = ? WHERE id = ? AND current_bid = ? AND ends_at > ?",
             (amount, auction["id"], auction["current_bid"], now),
@@ -1484,6 +1706,31 @@ def place_bid(slug):
         connection.execute(
             "INSERT INTO auction_bids (auction_id, account_id, amount, created_at) VALUES (?, ?, ?, ?)",
             (auction["id"], session["user_id"], amount, now),
+        )
+        create_notification(
+            connection,
+            session["user_id"],
+            "Your bid was placed",
+            f"Your bid of ৳ {amount:,} on {listing['name']} was placed successfully.",
+            auction_url,
+            now,
+        )
+        if previous_leader and previous_leader["account_id"] != session["user_id"]:
+            create_notification(
+                connection,
+                previous_leader["account_id"],
+                "You have been outbid",
+                f"A higher bid was placed on {listing['name']}. The current bid is ৳ {amount:,}.",
+                auction_url,
+                now,
+            )
+        notify_staff(
+            connection,
+            "New auction bid",
+            f"A user bid ৳ {amount:,} on {listing['name']}.",
+            auction_url,
+            exclude_account_id=session["user_id"],
+            created_at=now,
         )
 
     flash(f"Your bid of ৳ {amount:,} was placed successfully.", "success")
@@ -1594,6 +1841,157 @@ def require_staff():
     if not account or not account["is_active"] or account["role"] not in ("admin", "superadmin"):
         abort(403)
     return account_id
+
+
+@app.get("/profile")
+def profile_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        account = connection.execute(
+            "SELECT full_name, email, phone, role FROM accounts "
+            "WHERE id = ? AND is_active = 1 AND is_verified = 1",
+            (account_id,),
+        ).fetchone()
+    if not account:
+        abort(403)
+    return render_template("profile.html", account=account, active_page="profile")
+
+
+@app.post("/profile/update")
+def update_profile():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+
+    full_name = request.form.get("full_name", "").strip()
+    email = request.form.get("email", "").strip().casefold()
+    phone = request.form.get("phone", "").strip()
+    current_password = request.form.get("current_password", "")
+    new_password = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    with database() as connection:
+        account = connection.execute(
+            "SELECT full_name, email, phone, password_hash, role, is_active, is_verified "
+            "FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+    if not account or not account["is_active"] or not account["is_verified"]:
+        abort(403)
+
+    email_changed = email != account["email"].casefold()
+    if not full_name or len(full_name) > 120:
+        flash("Enter your name using no more than 120 characters.", "error")
+        return redirect(url_for("profile_page"))
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        flash("Enter a valid email address.", "error")
+        return redirect(url_for("profile_page"))
+    if len(phone) > 32:
+        flash("Phone number must be 32 characters or fewer.", "error")
+        return redirect(url_for("profile_page"))
+    if new_password or confirm_password:
+        if len(new_password) < 8:
+            flash("A new password must be at least 8 characters.", "error")
+            return redirect(url_for("profile_page"))
+        if new_password != confirm_password:
+            flash("The new password and confirmation do not match.", "error")
+            return redirect(url_for("profile_page"))
+    if email_changed or new_password:
+        if not current_password or not check_password_hash(account["password_hash"], current_password):
+            flash("Enter your current password to change your email or password.", "error")
+            return redirect(url_for("profile_page"))
+    if email_changed and not all(
+        os.getenv(setting) for setting in ("SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")
+    ):
+        flash(
+            "Email changes require verification. Configure email delivery before changing your email address.",
+            "error",
+        )
+        return redirect(url_for("profile_page"))
+
+    password_hash = generate_password_hash(new_password) if new_password else account["password_hash"]
+    try:
+        with database() as connection:
+            connection.execute(
+                "UPDATE accounts SET full_name = ?, email = ?, phone = ?, password_hash = ?, "
+                "is_verified = ?, verification_token_hash = NULL, verification_expires_at = NULL "
+                "WHERE id = ?",
+                (
+                    full_name,
+                    email,
+                    phone,
+                    password_hash,
+                    0 if email_changed else 1,
+                    account_id,
+                ),
+            )
+            if account["role"] == "user":
+                notify_staff(
+                    connection,
+                    "Customer profile updated",
+                    "A customer updated their account profile.",
+                    url_for("admin_dashboard") + "#orders",
+                    exclude_account_id=account_id,
+                )
+            elif account["role"] == "admin":
+                notify_superadmins(
+                    connection,
+                    "Admin profile updated",
+                    "An Admin updated their profile details.",
+                    url_for("admin_dashboard") + "#accounts",
+                    exclude_account_id=account_id,
+                )
+            elif account["role"] == "superadmin":
+                notify_superadmins(
+                    connection,
+                    "Superadmin profile updated",
+                    "A Superadmin updated their profile details.",
+                    url_for("admin_dashboard"),
+                    exclude_account_id=account_id,
+                )
+            if new_password:
+                create_notification(
+                    connection,
+                    account_id,
+                    "Password changed",
+                    "Your BidMart password was changed successfully.",
+                    url_for("profile_page"),
+                )
+            if email_changed:
+                create_notification(
+                    connection,
+                    account_id,
+                    "Email change needs verification",
+                    "Verify your new email address before signing in again.",
+                    url_for("registration_page"),
+                )
+    except sqlite3.IntegrityError:
+        flash("That email address is already associated with another account.", "error")
+        return redirect(url_for("profile_page"))
+
+    session["user_name"] = full_name
+    if email_changed:
+        session.pop("user_id", None)
+        session.pop("user_email", None)
+        session.pop("user_name", None)
+        session.pop("user_role", None)
+        try:
+            issue_verification(email)
+        except (RuntimeError, OSError, smtplib.SMTPException):
+            logging.exception("Profile email verification could not be sent")
+            flash(
+                "Your email was changed, but the verification message could not be sent. "
+                "Use the resend verification form with your new email address.",
+                "error",
+            )
+            return redirect(url_for("registration_page"))
+        flash("Your email was changed. Verify the new address before logging in again.", "success")
+        return redirect(url_for("login_page"))
+
+    flash("Your profile has been updated.", "success")
+    return redirect(url_for("profile_page"))
 
 
 def get_products(include_inactive=False):
@@ -1856,6 +2254,14 @@ def admin_create_product():
         flash("A product with that slug already exists.", "error")
         return redirect(url_for("admin_dashboard") + "#products")
     flash("Product created and published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product created",
+            f"An Admin added product {values['name']}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -1900,6 +2306,21 @@ def admin_update_product(slug):
     if not result.rowcount:
         abort(404)
     flash("Product details and stock updated.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product updated",
+            f"An Admin updated product {values['name']}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction product updated",
+            f"The product details for auction {slug} changed. Review the current listing.",
+            url_for("auction_details", slug=slug),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -1916,6 +2337,21 @@ def admin_set_product_status(slug, action):
     if not result.rowcount:
         abort(404)
     flash("Product archived." if action == "archive" else "Product restored.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product availability changed",
+            f"An Admin {action}d product {slug}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction product availability changed",
+            f"The product status for auction {slug} changed. Check whether the auction is still available.",
+            url_for("auctions_page"),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -1950,6 +2386,14 @@ def admin_create_auction():
                 flash("This product already has an auction listing.", "error")
                 return redirect(url_for("admin_dashboard") + "#auctions")
         flash("Auction published.", "success")
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction created",
+                f"An Admin created an auction for {existing_slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
         return redirect(url_for("admin_dashboard") + "#auctions")
     try:
         starting_bid = int(request.form.get("starting_bid", ""))
@@ -1997,6 +2441,14 @@ def admin_create_auction():
         flash("A product or auction with that slug already exists.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
     flash("Auction published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Auction created",
+            f"An Admin created an auction for {values['name']}.",
+            url_for("admin_dashboard") + "#auctions",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2054,6 +2506,21 @@ def admin_close_auction(slug):
         flash("That auction is already closed or was not found.", "error")
     else:
         flash("Auction closed; its bid history has been preserved.", "success")
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction closed",
+                f"An Admin closed the auction for {slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
+            notify_auction_bidders(
+                connection,
+                slug,
+                "Auction closed",
+                f"The auction for {slug} has been closed by the Admin.",
+                url_for("auction_details", slug=slug),
+            )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2088,6 +2555,21 @@ def admin_update_auction(slug):
         "Auction and product details updated." if values else "Auction details updated.",
         "success",
     )
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Auction updated",
+            f"An Admin updated the auction for {slug}.",
+            url_for("admin_dashboard") + "#auctions",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction details changed",
+            f"The auction details for {slug} have changed. Review the latest terms before bidding.",
+            url_for("auction_details", slug=slug),
+        )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2123,6 +2605,21 @@ def admin_reopen_auction(slug):
             else "Auction reopened with its bid history preserved.",
             "success",
         )
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction reopened",
+                f"An Admin reopened the auction for {slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
+            notify_auction_bidders(
+                connection,
+                slug,
+                "Auction reopened",
+                f"The auction for {slug} has reopened and is accepting bids again.",
+                url_for("auction_details", slug=slug),
+            )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2250,6 +2747,14 @@ def admin_create_offer():
         flash("That product slug is already in use. Choose a different slug.", "error")
         return redirect(url_for("admin_dashboard") + "#offers")
     flash("Offer product published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer published",
+            f"An Admin published the offer {values['title']}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2295,6 +2800,14 @@ def admin_update_offer(offer_id):
             (values["stock"], values["slug"]),
         )
     flash("Offer product updated.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer updated",
+            f"An Admin updated the offer {values['title']}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2312,6 +2825,14 @@ def admin_delete_offer(slug):
     if not result.rowcount:
         abort(404)
     flash("Offer product archived; its order history was preserved.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer archived",
+            f"An Admin archived the offer {slug}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2326,7 +2847,8 @@ def admin_update_order_status(order_id):
     }
     with database() as connection:
         order = connection.execute(
-            "SELECT order_status, payment_method, payment_status FROM orders WHERE id = ?",
+            "SELECT order_number, account_id, order_status, payment_method, payment_status "
+            "FROM orders WHERE id = ?",
             (order_id,),
         ).fetchone()
         if not order:
@@ -2340,6 +2862,20 @@ def admin_update_order_status(order_id):
             connection.execute(
                 "UPDATE orders SET order_status = ? WHERE id = ? AND order_status = ?",
                 (requested_status, order_id, order["order_status"]),
+            )
+            create_notification(
+                connection,
+                order["account_id"],
+                "Order status updated",
+                f"Order {order['order_number']} is now {requested_status}.",
+                url_for("notifications_page"),
+            )
+            notify_superadmins(
+                connection,
+                "Order status updated",
+                f"An Admin moved order {order['order_number']} to {requested_status}.",
+                url_for("admin_dashboard") + "#orders",
+                exclude_account_id=session.get("user_id"),
             )
             flash(f"Order moved to {requested_status}.", "success")
     return redirect(url_for("admin_dashboard") + "#orders")
@@ -2364,16 +2900,52 @@ def superadmin_update_account(account_id):
             flash("Superadmin accounts cannot be changed from this screen.", "error")
         elif action == "make_admin":
             connection.execute("UPDATE accounts SET role = 'admin' WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account role updated",
+                "A Superadmin changed your account role to Admin.",
+                url_for("profile_page"),
+            )
             flash("Account role changed to Admin.", "success")
         elif action == "make_user":
             connection.execute("UPDATE accounts SET role = 'user' WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account role updated",
+                "A Superadmin changed your account role to User.",
+                url_for("profile_page"),
+            )
             flash("Account role changed to User.", "success")
         elif action == "activate":
             connection.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account activated",
+                "A Superadmin reactivated your BidMart account.",
+                url_for("profile_page"),
+            )
             flash("Account activated.", "success")
         else:
             connection.execute("UPDATE accounts SET is_active = 0 WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account deactivated",
+                "A Superadmin deactivated your BidMart account. Contact support if you believe this is a mistake.",
+                url_for("login_page"),
+            )
             flash("Account deactivated.", "success")
+        if account["role"] != "superadmin":
+            notify_superadmins(
+                connection,
+                "Account access updated",
+                f"A Superadmin applied the {action.replace('_', ' ')} action to account {account_id}.",
+                url_for("admin_dashboard") + "#accounts",
+                exclude_account_id=superadmin_id,
+            )
     return redirect(url_for("admin_dashboard") + "#accounts")
 
 
@@ -2411,8 +2983,29 @@ def review_admin_request(account_id, action):
                     "from their registration page.",
                     "success",
                 )
+                create_notification(
+                    connection,
+                    account_id,
+                    "Access request approved",
+                    "Your Admin access request was approved. Complete email verification to activate your role.",
+                    url_for("registration_page"),
+                )
             else:
                 flash("Request rejected.", "success")
+                create_notification(
+                    connection,
+                    account_id,
+                    "Access request update",
+                    "Your elevated access request was not approved. Contact BidMart support if you need help.",
+                    url_for("registration_page"),
+                )
+            notify_superadmins(
+                connection,
+                "Elevated access request reviewed",
+                f"A Superadmin {status} an elevated access request.",
+                url_for("admin_role_requests_page"),
+                exclude_account_id=superadmin_id,
+            )
     return redirect(url_for("admin_role_requests_page"))
 
 
@@ -2488,6 +3081,22 @@ def register():
                     "INSERT INTO admin_role_requests (account_id, requested_role, status, requested_at) "
                     "VALUES (?, ?, 'pending', ?)",
                     (result.lastrowid, role, int(time.time())),
+                )
+                notify_superadmins(
+                    connection,
+                    "Elevated access request",
+                    f"A user submitted a request for {role.title()} access.",
+                    url_for("admin_role_requests_page"),
+                    created_at=int(time.time()),
+                )
+            else:
+                notify_staff(
+                    connection,
+                    "New customer account",
+                    "A new customer account was created and is awaiting email verification.",
+                    url_for("admin_dashboard") + "#orders",
+                    exclude_account_id=result.lastrowid,
+                    created_at=int(time.time()),
                 )
         if role in ("admin", "superadmin"):
             session["pending_role_request_account_id"] = result.lastrowid
