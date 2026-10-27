@@ -48,7 +48,7 @@ Run the test suite without sending email:
 C:/Users/DESKTOP/AppData/Local/Programs/Python/Python312/python.exe -m unittest -v
 ```
 
-Tests use a temporary SQLite database and mock the SMTP send operation. Public registration offers User signup or an Admin/Superadmin access request. Elevated-role applicants receive no verification email until an existing Superadmin approves the request at `/superadmin/admin-requests`. The pending request page refreshes automatically; after approval, the applicant can select **Create Account** to receive the email verification link. They then verify their email; only then is the requested role activated. Superadmin access cannot be granted through public signup without approval and email verification.
+Tests use a temporary SQLite database and mock the SMTP send operation. Public registration offers User signup or an Admin access request; Superadmin accounts are provisioned separately and are not offered as a public registration role. Admin applicants receive no verification email until an existing Superadmin approves the request at `/superadmin/admin-requests`. The pending request page refreshes automatically; after approval, the applicant can select **Create Account** to receive the email verification link. They then verify their email; only then is the Admin role activated.
 
 Before deployment, use HTTPS, set `APP_BASE_URL` to the HTTPS site, set `COOKIE_SECURE=true`, use a production WSGI server, and configure rate limits for registration and verification resend endpoints.
 

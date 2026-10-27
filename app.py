@@ -1967,8 +1967,8 @@ def register():
     password = request.form.get("password", "")
     confirm_password = request.form.get("confirm_password", "")
 
-    if role not in ("user", "admin", "superadmin"):
-        flash("Choose User, Admin, or Superadmin.", "error")
+    if role not in ("user", "admin"):
+        flash("Public registration supports User accounts and Admin access requests only.", "error")
         return redirect(url_for("registration_page"))
     if not full_name or "@" not in email or len(password) < 8:
         flash("Enter a valid name and email, and a password of at least 8 characters.", "error")
