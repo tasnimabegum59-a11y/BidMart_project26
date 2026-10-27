@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="View your BidMart order, payment, auction, and account notifications.">
+    <title>Notifications | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "notifications" %}
+    {% include "site_header.html" %}
+    <main class="page-container notification-page">
+        <div class="page-heading notification-page-heading">
+            <div>
+                <p class="eyebrow">YOUR UPDATES</p>
+                <h1>Notifications</h1>
+                <p>Order, payment, auction, and account activity related to you.</p>
+            </div>
+            {% if unread_notification_count %}
+            <form action="{{ url_for('mark_all_notifications_read') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="secondary-btn" type="submit">Mark all as read</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <section class="notification-list" aria-label="Your notifications">
+            {% for notification in notifications %}
+            <a class="notification-card{% if not notification.read_at %} is-unread{% endif %}"
+               href="{{ url_for('open_notification', notification_id=notification.id) }}">
+                <span class="notification-card-indicator" aria-hidden="true"></span>
+                <span class="notification-card-copy">
+                    <strong>{{ notification.title }}</strong>
+                    <span>{{ notification.message }}</span>
+                    <time datetime="{{ notification.created_at|datetime }}">{{ notification.created_at|datetime }}</time>
+                </span>
+                <span class="notification-card-arrow" aria-hidden="true">→</span>
+            </a>
+            {% else %}
+            <div class="notification-empty">
+                <span aria-hidden="true">♧</span>
+                <h2>You're all caught up</h2>
+                <p>New updates about your orders, bids, and account will appear here.</p>
+            </div>
+            {% endfor %}
+        </section>
+    </main>
+    {% include "site_footer.html" %}
+</body>
+</html>

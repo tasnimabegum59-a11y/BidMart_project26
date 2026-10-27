@@ -101,6 +101,8 @@ AUCTION_LISTINGS = (
         "minimum_increment": 500,
     },
 )
+
+
 PRODUCT_CATALOG = (
     {
         "slug": "iphone-14-pro-max-256gb",
@@ -332,6 +334,21 @@ def initialize_database():
         if "is_active" not in columns:
             connection.execute("ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         connection.execute(
+            """CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                read_at INTEGER
+            )"""
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS notifications_account_unread "
+            "ON notifications(account_id, read_at, created_at DESC)"
+        )
+        connection.execute(
             """CREATE TABLE IF NOT EXISTS admin_role_requests (
                 account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
                 requested_role TEXT NOT NULL DEFAULT 'admin'
@@ -421,6 +438,15 @@ def initialize_database():
             )"""
         )
         connection.execute(
+            """CREATE TABLE IF NOT EXISTS cart_items (
+                account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                product_slug TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 99),
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, product_slug)
+            )"""
+        )
+        connection.execute(
             """CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY,
                 order_number TEXT NOT NULL UNIQUE,
@@ -458,6 +484,10 @@ def initialize_database():
         }
         if "stock_reserved" not in order_columns:
             connection.execute("ALTER TABLE orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 0")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_account_created "
+            "ON orders(account_id, created_at DESC)"
+        )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY,
@@ -535,7 +565,7 @@ def csrf_context():
     current_user_email = None
     current_user_name = None
     pending_role_request_count = 0
-    cart_count = sum(_cart_quantities().values())
+    unread_notification_count = 0
     if session.get("user_id"):
         with database() as connection:
             account = connection.execute(
@@ -545,6 +575,10 @@ def csrf_context():
                 user_role = account["role"]
                 current_user_name = account["full_name"]
                 current_user_email = account["email"]
+                unread_notification_count = connection.execute(
+                    "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+                    (session["user_id"],),
+                ).fetchone()[0]
                 if user_role == "superadmin":
                     pending_role_request_count = connection.execute(
                         "SELECT COUNT(*) FROM admin_role_requests WHERE status = 'pending'"
@@ -555,8 +589,190 @@ def csrf_context():
         "current_user_email": current_user_email,
         "current_user_name": current_user_name,
         "pending_role_request_count": pending_role_request_count,
-        "cart_count": cart_count,
+        "unread_notification_count": unread_notification_count,
     }
+
+
+def create_notification(connection, account_id, title, message, target_url, created_at=None):
+    if not account_id:
+        return
+    connection.execute(
+        "INSERT INTO notifications (account_id, title, message, target_url, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (account_id, title, message, target_url, created_at or int(time.time())),
+    )
+
+
+def notify_roles(
+    connection, roles, title, message, target_url, *, exclude_account_id=None, created_at=None
+):
+    placeholders = ", ".join("?" for _ in roles)
+    if not placeholders:
+        return
+    recipients = connection.execute(
+        f"SELECT id FROM accounts WHERE role IN ({placeholders}) AND is_active = 1",
+        tuple(roles),
+    ).fetchall()
+    for recipient in recipients:
+        if recipient["id"] != exclude_account_id:
+            create_notification(
+                connection, recipient["id"], title, message, target_url, created_at
+            )
+
+
+def notify_staff(connection, title, message, target_url, *, exclude_account_id=None, created_at=None):
+    notify_roles(
+        connection,
+        ("admin", "superadmin"),
+        title,
+        message,
+        target_url,
+        exclude_account_id=exclude_account_id,
+        created_at=created_at,
+    )
+
+
+def notify_superadmins(
+    connection, title, message, target_url, *, exclude_account_id=None, created_at=None
+):
+    notify_roles(
+        connection,
+        ("superadmin",),
+        title,
+        message,
+        target_url,
+        exclude_account_id=exclude_account_id,
+        created_at=created_at,
+    )
+
+
+def notify_auction_bidders(connection, slug, title, message, target_url, created_at=None):
+    bidders = connection.execute(
+        "SELECT DISTINCT auction_bids.account_id "
+        "FROM auction_bids JOIN auctions ON auctions.id = auction_bids.auction_id "
+        "WHERE auctions.slug = ?",
+        (slug,),
+    ).fetchall()
+    for bidder in bidders:
+        create_notification(
+            connection, bidder["account_id"], title, message, target_url, created_at
+        )
+
+
+@app.get("/notifications")
+def notifications_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        notifications = connection.execute(
+            "SELECT id, title, message, target_url, created_at, read_at "
+            "FROM notifications WHERE account_id = ? ORDER BY created_at DESC, id DESC LIMIT 100",
+            (account_id,),
+        ).fetchall()
+        unread_count = connection.execute(
+            "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+            (account_id,),
+        ).fetchone()[0]
+    return render_template(
+        "notifications.html",
+        notifications=notifications,
+        unread_notification_count=unread_count,
+        active_page="notifications",
+    )
+
+
+@app.get("/notifications/<int:notification_id>/open")
+def open_notification(notification_id):
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        notification = connection.execute(
+            "SELECT target_url FROM notifications WHERE id = ? AND account_id = ?",
+            (notification_id, account_id),
+        ).fetchone()
+        if not notification:
+            abort(404)
+        connection.execute(
+            "UPDATE notifications SET read_at = COALESCE(read_at, ?) "
+            "WHERE id = ? AND account_id = ?",
+            (int(time.time()), notification_id, account_id),
+        )
+    return redirect(notification["target_url"])
+
+
+@app.post("/notifications/read-all")
+def mark_all_notifications_read():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        connection.execute(
+            "UPDATE notifications SET read_at = ? WHERE account_id = ? AND read_at IS NULL",
+            (int(time.time()), account_id),
+        )
+    flash("All notifications marked as read.", "success")
+    return redirect(url_for("notifications_page"))
+
+
+@app.get("/my-orders")
+def my_orders_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        rows = connection.execute(
+            """SELECT orders.id AS order_id, orders.order_number, orders.created_at,
+            orders.subtotal, orders.delivery_fee, orders.discount, orders.total,
+            orders.coupon_code, orders.payment_method, orders.payment_status,
+            orders.order_status, order_items.id AS item_id, order_items.product_name,
+            order_items.product_slug, order_items.quantity, order_items.unit_price
+            FROM orders LEFT JOIN order_items ON order_items.order_id = orders.id
+            WHERE orders.account_id = ?
+            ORDER BY orders.created_at DESC, orders.id DESC, order_items.id""",
+            (account_id,),
+        ).fetchall()
+
+    orders_by_id = {}
+    status_indexes = {
+        "confirmed": 0,
+        "processing": 1,
+        "shipped": 2,
+        "delivered": 3,
+    }
+    for row in rows:
+        order = orders_by_id.get(row["order_id"])
+        if order is None:
+            order = {
+                "id": row["order_id"],
+                "order_number": row["order_number"],
+                "created_at": row["created_at"],
+                "subtotal": row["subtotal"],
+                "delivery_fee": row["delivery_fee"],
+                "discount": row["discount"],
+                "total": row["total"],
+                "coupon_code": row["coupon_code"],
+                "payment_method": row["payment_method"],
+                "payment_status": row["payment_status"],
+                "order_status": row["order_status"],
+                "status_index": status_indexes.get(row["order_status"], -1),
+                "items": [],
+            }
+            orders_by_id[row["order_id"]] = order
+        if row["item_id"] is not None:
+            order["items"].append({
+                "name": row["product_name"],
+                "slug": row["product_slug"],
+                "quantity": row["quantity"],
+                "unit_price": row["unit_price"],
+            })
+
+    return render_template(
+        "my_orders.html",
+        orders=list(orders_by_id.values()),
+        active_page="my_orders",
+    )
 
 
 @app.template_filter("datetime")
@@ -600,12 +816,10 @@ def protect_post_requests():
                 "request_password_reset": "forgot_password_page",
                 "reset_password": "forgot_password_page",
                 "logout": "home",
+                "update_profile": "profile_page",
+                "mark_all_notifications_read": "notifications_page",
                 "place_bid": "auction_details",
                 "start_checkout": "products_page",
-                "add_to_cart": "products_page",
-                "start_cart_checkout": "cart_page",
-                "update_cart_item": "cart_page",
-                "remove_cart_item": "cart_page",
                 "apply_checkout_coupon": "checkout_page",
                 "checkout_page": "checkout_page",
             }
@@ -706,6 +920,12 @@ def home():
             row["product_slug"]: row["stock"]
             for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
         }
+    products_by_slug = {product["slug"]: product for product in get_products()}
+    featured_products = [
+        products_by_slug[product["slug"]]
+        for product in PRODUCT_CATALOG[:6]
+        if product["slug"] in products_by_slug
+    ]
     auction, _ = get_auction(DEMO_AUCTION_SLUG)
     featured_offers = get_offer_listings()[:3]
     max_offer_discount = max(
@@ -718,6 +938,7 @@ def home():
         featured_offers=featured_offers,
         max_offer_discount=max_offer_discount,
         product_inventory=product_inventory,
+        featured_products=featured_products,
         now=int(time.time()),
     )
 
@@ -762,116 +983,119 @@ def product_details_page(slug):
     )
 
 
-def _cart_quantities():
-    raw_cart = session.get("cart", {})
-    if not isinstance(raw_cart, dict):
-        return {}
-    cart = {}
-    for slug, raw_quantity in raw_cart.items():
-        quantity = _parse_quantity(raw_quantity)
-        if isinstance(slug, str) and quantity:
-            cart[slug] = quantity
-    return cart
+def _save_cart_item(account_id, slug, quantity, add_quantity=False):
+    product = get_product(slug)
+    if not product:
+        return "This product is no longer available."
 
-
-def _cart_items():
-    cart = _cart_quantities()
-    if not cart:
-        return []
-    products = {product["slug"]: product for product in get_products()}
     with database() as connection:
-        inventory = {
-            row["product_slug"]: row["stock"]
-            for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
-        }
-    valid_cart = {}
-    items = []
-    for slug, quantity in cart.items():
-        product = products.get(slug)
-        if not product:
-            continue
-        stock = inventory.get(slug, 0)
-        valid_cart[slug] = quantity
-        items.append({
-            **product,
-            "quantity": quantity,
-            "stock": stock,
-            "line_total": product["price"] * quantity,
-        })
-    if valid_cart != cart:
-        session["cart"] = valid_cart
-    return items
-
-
-@app.get("/cart")
-def cart_page():
-    requested_cart = _cart_quantities()
-    items = _cart_items()
-    if requested_cart != _cart_quantities():
-        flash("Unavailable products were removed from your cart.", "error")
-    subtotal = sum(item["line_total"] for item in items)
-    return render_template(
-        "cart.html",
-        items=items,
-        subtotal=subtotal,
-        item_count=sum(item["quantity"] for item in items),
-        stock_available=all(item["quantity"] <= item["stock"] for item in items),
-        active_page="cart",
-    )
+        connection.execute("BEGIN IMMEDIATE")
+        inventory = connection.execute(
+            "SELECT stock FROM product_inventory WHERE product_slug = ?", (slug,)
+        ).fetchone()
+        stock = inventory["stock"] if inventory else 0
+        existing = connection.execute(
+            "SELECT quantity FROM cart_items WHERE account_id = ? AND product_slug = ?",
+            (account_id, slug),
+        ).fetchone()
+        final_quantity = quantity + (existing["quantity"] if existing and add_quantity else 0)
+        if stock < 1:
+            return "This product is out of stock."
+        if final_quantity > min(stock, 99):
+            return f"Your cart can contain up to {min(stock, 99)} item(s) of this product."
+        connection.execute(
+            """INSERT INTO cart_items (account_id, product_slug, quantity, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(account_id, product_slug) DO UPDATE SET
+                quantity = excluded.quantity, updated_at = excluded.updated_at""",
+            (account_id, slug, final_quantity, int(time.time())),
+        )
+    return None
 
 
 @app.post("/cart/add")
 def add_to_cart():
-    slug = request.form.get("product_slug", "")
-    product = get_product(slug)
-    if not product:
-        abort(404)
+    slug = request.form.get("product_slug", "").strip()
     quantity = _parse_quantity(request.form.get("quantity", "1"))
+    if not get_product(slug):
+        flash("This product is no longer available.", "error")
+        return redirect(url_for("products_page"))
     if quantity is None:
-        flash("Choose a quantity between 1 and 99.", "error")
+        flash("Choose a valid quantity between 1 and 99.", "error")
         return redirect(url_for("product_details_page", slug=slug))
-    stock = _checkout_stock(slug)
-    cart = _cart_quantities()
-    cart_quantity = cart.get(slug, 0) + quantity
-    if stock < 1:
-        flash(f"{product['name']} is currently out of stock.", "error")
-    elif cart_quantity > stock or cart_quantity > 99:
-        flash(f"Only {stock} item(s) of {product['name']} are currently available.", "error")
+
+    account_id = session.get("user_id")
+    if not account_id:
+        session["pending_cart_add"] = {"slug": slug, "quantity": quantity}
+        flash("Log in to save this product to your cart.", "info")
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+
+    error = _save_cart_item(account_id, slug, quantity, add_quantity=True)
+    if error:
+        flash(error, "error")
     else:
-        cart[slug] = cart_quantity
-        session["cart"] = cart
-        flash(f"{product['name']} was added to your cart.", "success")
-    return redirect(url_for("cart_page"))
+        flash(f"{quantity} item(s) added to your cart.", "success")
+    return redirect(url_for("my_cart_page"))
 
 
-@app.post("/cart/<slug>/update")
+@app.get("/my-cart")
+def my_cart_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+
+    with database() as connection:
+        rows = connection.execute(
+            """SELECT product_slug, quantity FROM cart_items
+            WHERE account_id = ? ORDER BY updated_at DESC, product_slug""",
+            (account_id,),
+        ).fetchall()
+    items = []
+    for row in rows:
+        product = get_product(row["product_slug"])
+        items.append({
+            "slug": row["product_slug"],
+            "quantity": row["quantity"],
+            "product": product,
+            "stock": _checkout_stock(row["product_slug"]) if product else 0,
+        })
+    return render_template(
+        "my_cart.html",
+        items=items,
+        active_page="my_cart",
+    )
+
+
+@app.post("/my-cart/<slug>/update")
 def update_cart_item(slug):
-    cart = _cart_quantities()
-    if slug not in cart:
-        abort(404)
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
     quantity = _parse_quantity(request.form.get("quantity"))
     if quantity is None:
-        flash("Choose a quantity between 1 and 99.", "error")
+        flash("Choose a valid quantity between 1 and 99.", "error")
+        return redirect(url_for("my_cart_page"))
+
+    error = _save_cart_item(account_id, slug, quantity)
+    if error:
+        flash(error, "error")
     else:
-        stock = _checkout_stock(slug)
-        if quantity > stock:
-            flash(f"Only {stock} item(s) are currently available.", "error")
-        else:
-            cart[slug] = quantity
-            session["cart"] = cart
-            flash("Cart quantity updated.", "success")
-    return redirect(url_for("cart_page"))
+        flash("Cart quantity updated.", "success")
+    return redirect(url_for("my_cart_page"))
 
 
-@app.post("/cart/<slug>/remove")
+@app.post("/my-cart/<slug>/remove")
 def remove_cart_item(slug):
-    cart = _cart_quantities()
-    if slug not in cart:
-        abort(404)
-    del cart[slug]
-    session["cart"] = cart
-    flash("Item removed from your cart.", "success")
-    return redirect(url_for("cart_page"))
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+    with database() as connection:
+        connection.execute(
+            "DELETE FROM cart_items WHERE account_id = ? AND product_slug = ?",
+            (account_id, slug),
+        )
+    flash("Product removed from your cart.", "success")
+    return redirect(url_for("my_cart_page"))
 
 
 def _checkout_product():
@@ -887,37 +1111,36 @@ def _checkout_lines():
     if not isinstance(draft, dict):
         return []
     if isinstance(draft.get("cart_items"), list):
-        requested = draft["cart_items"]
-    else:
-        requested = [{"product_slug": draft.get("product_slug"), "quantity": draft.get("quantity")}]
-
-    products = {
-        entry.get("product_slug"): get_product(entry.get("product_slug"))
-        for entry in requested
-        if isinstance(entry, dict)
-    }
-    with database() as connection:
-        inventory = {
-            row["product_slug"]: row["stock"]
-            for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
-        }
-
-    lines = []
-    for entry in requested:
-        if not isinstance(entry, dict):
+        account_id = session.get("user_id")
+        if not account_id:
             return []
-        slug = entry.get("product_slug")
-        quantity = _parse_quantity(entry.get("quantity"))
-        product = products.get(slug)
-        if not product or quantity is None:
+        selected = draft.get("cart_items", [])
+        slugs = [item.get("product_slug") for item in selected if isinstance(item, dict)]
+        if not slugs:
             return []
-        lines.append({
-            **product,
-            "quantity": quantity,
-            "stock": inventory.get(slug, 0),
-            "line_total": product["price"] * quantity,
-        })
-    return lines
+        placeholders = ", ".join("?" for _ in slugs)
+        with database() as connection:
+            rows = connection.execute(
+                f"SELECT product_slug, quantity FROM cart_items "
+                f"WHERE account_id = ? AND product_slug IN ({placeholders})",
+                (account_id, *slugs),
+            ).fetchall()
+        quantities = {row["product_slug"]: row["quantity"] for row in rows}
+        lines = []
+        for item in selected:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("product_slug")
+            quantity = quantities.get(slug)
+            product = get_product(slug)
+            if product and quantity:
+                lines.append({**product, "slug": slug, "quantity": quantity, "stock": _checkout_stock(slug)})
+        return lines
+    product = _checkout_product()
+    if not product:
+        return []
+    quantity = _parse_quantity(draft.get("quantity")) or 1
+    return [{**product, "quantity": quantity, "stock": _checkout_stock(product["slug"])}]
 
 
 def _parse_quantity(raw_quantity):
@@ -938,10 +1161,7 @@ def _checkout_stock(slug):
 
 
 def _checkout_totals(product, quantity, division, coupon_code=""):
-    if isinstance(product, list):
-        subtotal = sum(item["price"] * item["quantity"] for item in product)
-    else:
-        subtotal = product["price"] * quantity
+    subtotal = product["price"] * quantity
     delivery_fee = DELIVERY_FEES.get(division, DELIVERY_FEES["Dhaka"])
     coupon = CHECKOUT_COUPONS.get(coupon_code.strip().upper())
     discount = 0
@@ -955,21 +1175,12 @@ def _checkout_totals(product, quantity, division, coupon_code=""):
     }
 
 
-def _remove_checked_out_cart_items(lines):
-    cart = _cart_quantities()
-    for item in lines:
-        cart.pop(item["slug"], None)
-    session["cart"] = cart
-
-
 def _checkout_context(form_data=None, errors=None):
     draft = session.get("checkout_draft", {})
     lines = _checkout_lines()
     if not lines:
         return None
     product = lines[0]
-    quantity = product["quantity"]
-    stock = product["stock"]
     is_cart_checkout = isinstance(draft.get("cart_items"), list)
     form_data = form_data or {}
     profile = {}
@@ -992,20 +1203,27 @@ def _checkout_context(form_data=None, errors=None):
         "delivery_note": form_data.get("delivery_note", ""),
         "coupon_code": form_data.get("coupon_code", ""),
         "payment_method": form_data.get("payment_method", "cod"),
-        "quantity": form_data.get("quantity", quantity),
+        "quantity": form_data.get("quantity", product["quantity"]),
     }
     if not is_cart_checkout:
-        parsed_quantity = _parse_quantity(values["quantity"]) or quantity
+        parsed_quantity = _parse_quantity(values["quantity"]) or product["quantity"]
         lines[0]["quantity"] = parsed_quantity
-        lines[0]["line_total"] = product["price"] * parsed_quantity
-    totals = _checkout_totals(lines, None, values["division"], values["coupon_code"])
-    stock_available = all(item["quantity"] <= item["stock"] for item in lines)
+    subtotal = sum(item["price"] * item["quantity"] for item in lines)
+    delivery_fee = DELIVERY_FEES.get(values["division"], DELIVERY_FEES["Dhaka"])
+    coupon = CHECKOUT_COUPONS.get(values["coupon_code"])
+    discount = min(coupon["discount"], subtotal) if coupon and subtotal >= coupon["minimum"] else 0
+    totals = {
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "discount": discount,
+        "total": subtotal + delivery_fee - discount,
+    }
     return {
         "product": product,
         "line_items": lines,
         "is_cart_checkout": is_cart_checkout,
-        "stock": stock,
-        "stock_available": stock_available,
+        "stock": product["stock"],
+        "stock_available": all(item["quantity"] <= item["stock"] for item in lines),
         "item_count": sum(item["quantity"] for item in lines),
         "values": values,
         "totals": totals,
@@ -1157,6 +1375,17 @@ def complete_sslcommerz_payment(tran_id, val_id):
         current_state = connection.execute(
             "SELECT payment_status FROM orders WHERE id = ?", (order["id"],)
         ).fetchone()
+        if result.rowcount == 1:
+            message = f"Payment received for order {order['order_number']}. Your order is confirmed."
+            create_notification(
+                connection, order["account_id"], "Payment confirmed", message,
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
+            )
+            notify_staff(
+                connection, "Order payment received",
+                f"Order {order['order_number']} has been paid and confirmed.",
+                url_for("admin_dashboard") + "#orders",
+            )
     return result.rowcount == 1 or current_state["payment_status"] == "paid"
 
 
@@ -1179,15 +1408,32 @@ def release_order_stock(connection, order_id):
 
 def release_expired_online_orders(connection, now):
     expired = connection.execute(
-        "SELECT id FROM orders WHERE payment_method != 'cod' AND payment_status != 'paid' "
+        "SELECT id, account_id, order_number FROM orders "
+        "WHERE payment_method != 'cod' AND payment_status != 'paid' "
         "AND stock_reserved = 1 AND created_at <= ?",
         (now - 30 * 60,),
     ).fetchall()
     for order in expired:
-        connection.execute(
+        result = connection.execute(
             "UPDATE orders SET payment_status = 'failed' WHERE id = ? AND payment_status != 'paid'",
             (order["id"],),
         )
+        if result.rowcount:
+            create_notification(
+                connection,
+                order["account_id"],
+                "Payment session expired",
+                f"The payment window for order {order['order_number']} expired. Please place the order again.",
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
+                now,
+            )
+            notify_staff(
+                connection,
+                "Order payment session expired",
+                f"The payment window for order {order['order_number']} expired.",
+                url_for("admin_dashboard") + "#orders",
+                created_at=now,
+            )
         release_order_stock(connection, order["id"])
 
 
@@ -1214,11 +1460,27 @@ def sslcommerz_ipn():
 def sslcommerz_fail():
     tran_id = request.form.get("tran_id", "")
     with database() as connection:
+        order = connection.execute(
+            "SELECT id, account_id, order_number FROM orders "
+            "WHERE order_number = ? AND payment_method != 'cod' AND payment_status = 'unpaid'",
+            (tran_id,),
+        ).fetchone()
         result = connection.execute(
             "UPDATE orders SET payment_status = 'failed' "
             "WHERE order_number = ? AND payment_method != 'cod' AND payment_status = 'unpaid'",
             (tran_id,),
         )
+        if result.rowcount and order:
+            create_notification(
+                connection, order["account_id"], "Payment failed",
+                f"Payment for order {order['order_number']} was not completed. You can try checkout again.",
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
+            )
+            notify_staff(
+                connection, "Order payment failed",
+                f"Payment for order {order['order_number']} was not completed.",
+                url_for("admin_dashboard") + "#orders",
+            )
     return redirect(url_for("payment_result", order_number=tran_id))
 
 
@@ -1245,6 +1507,45 @@ def payment_result(order_number):
     )
 
 
+@app.post("/checkout/from-cart")
+def start_cart_checkout():
+    account_id = session.get("user_id")
+    if not account_id:
+        flash("Log in or create a verified account before checkout.", "error")
+        return redirect(url_for("login_page", next=url_for("checkout_page")))
+    selected_slugs = list(dict.fromkeys(request.form.getlist("selected_products")))
+    if not selected_slugs:
+        flash("Select at least one product to continue to checkout.", "error")
+        return redirect(url_for("my_cart_page"))
+    placeholders = ", ".join("?" for _ in selected_slugs)
+    with database() as connection:
+        rows = connection.execute(
+            f"SELECT product_slug, quantity FROM cart_items "
+            f"WHERE account_id = ? AND product_slug IN ({placeholders})",
+            (account_id, *selected_slugs),
+        ).fetchall()
+    cart_by_slug = {row["product_slug"]: row["quantity"] for row in rows}
+    selected = [
+        {"product_slug": slug, "quantity": cart_by_slug[slug]}
+        for slug in selected_slugs if slug in cart_by_slug
+    ]
+    if not selected:
+        flash("The selected products are no longer in your cart.", "error")
+        return redirect(url_for("my_cart_page"))
+    unavailable = [
+        item for item in selected
+        if item["quantity"] > _checkout_stock(item["product_slug"])
+    ]
+    if unavailable:
+        flash("Review selected item quantities before checking out.", "error")
+        return redirect(url_for("my_cart_page"))
+    session["checkout_draft"] = {
+        "cart_items": selected,
+        "checkout_key": secrets.token_urlsafe(24),
+    }
+    return redirect(url_for("checkout_page"))
+
+
 @app.post("/checkout/start")
 def start_checkout():
     slug = request.form.get("product_slug", "")
@@ -1267,35 +1568,6 @@ def start_checkout():
     if not session.get("user_id"):
         flash("Log in or create a verified account before checkout.", "error")
         return redirect(url_for("login_page", next=url_for("checkout_page")))
-    return redirect(url_for("checkout_page"))
-
-
-@app.post("/checkout/from-cart")
-def start_cart_checkout():
-    items = _cart_items()
-    if not items:
-        flash("Add a product to your cart before checking out.", "error")
-        return redirect(url_for("cart_page"))
-    cart_items = {item["slug"]: item for item in items}
-    selected_slugs = dict.fromkeys(request.form.getlist("selected_products"))
-    selected_items = [
-        item for slug, item in cart_items.items()
-        if slug in selected_slugs
-    ]
-    if not selected_items:
-        flash("Select at least one product to continue to checkout.", "error")
-        return redirect(url_for("cart_page"))
-    unavailable = [item for item in selected_items if item["quantity"] > item["stock"]]
-    if unavailable:
-        flash("Review the quantities of selected items with limited stock before checking out.", "error")
-        return redirect(url_for("cart_page"))
-    session["checkout_draft"] = {
-        "cart_items": [
-            {"product_slug": item["slug"], "quantity": item["quantity"]}
-            for item in selected_items
-        ],
-        "checkout_key": secrets.token_urlsafe(24),
-    }
     return redirect(url_for("checkout_page"))
 
 
@@ -1331,17 +1603,22 @@ def apply_checkout_coupon():
         if quantity is None:
             return jsonify(error="Choose a valid product quantity."), 400
         lines[0]["quantity"] = quantity
-        lines[0]["line_total"] = lines[0]["price"] * quantity
     if any(item["quantity"] > _checkout_stock(item["slug"]) for item in lines):
-        return jsonify(error="One or more items are no longer available in that quantity."), 400
+        return jsonify(error="One or more selected items are no longer available in that quantity."), 400
     coupon_code = request.form.get("coupon_code", "").strip().upper()
     coupon = CHECKOUT_COUPONS.get(coupon_code)
     if not coupon:
         return jsonify(error="That coupon code is not valid."), 400
-    subtotal = sum(item["line_total"] for item in lines)
+    subtotal = sum(item["price"] * item["quantity"] for item in lines)
     if subtotal < coupon["minimum"]:
         return jsonify(error=f"This coupon requires a subtotal of at least ৳ {coupon['minimum']:,}."), 400
-    totals = _checkout_totals(lines, None, request.form.get("division", "Dhaka"), coupon_code)
+    delivery_fee = DELIVERY_FEES.get(request.form.get("division", "Dhaka"), DELIVERY_FEES["Dhaka"])
+    totals = {
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "discount": min(coupon["discount"], subtotal),
+    }
+    totals["total"] = subtotal + delivery_fee - totals["discount"]
     return jsonify(**totals, message=f"Coupon {coupon_code} applied.")
 
 
@@ -1362,8 +1639,6 @@ def place_checkout_order():
             token=draft["tracking_token"],
         ))
 
-    product = lines[0]
-    is_cart_checkout = isinstance(draft.get("cart_items"), list)
     form_data = request.form
     errors = {}
     name = form_data.get("customer_name", "").strip()
@@ -1376,11 +1651,11 @@ def place_checkout_order():
     delivery_note = form_data.get("delivery_note", "").strip()
     coupon_code = form_data.get("coupon_code", "").strip().upper()
     payment_method = form_data.get("payment_method", "")
+    is_cart_checkout = isinstance(draft.get("cart_items"), list)
     quantity = None if is_cart_checkout else _parse_quantity(form_data.get("quantity"))
-    if quantity is not None and not is_cart_checkout:
+    if quantity is not None:
         lines[0]["quantity"] = quantity
-        lines[0]["line_total"] = product["price"] * quantity
-    order_subtotal = sum(item["line_total"] for item in lines)
+    order_subtotal = sum(item["price"] * item["quantity"] for item in lines)
 
     if len(name) < 2 or len(name) > 100 or not re.search(r"[^\W\d_]", name, re.UNICODE):
         errors["customer_name"] = "Enter your full name (2–100 characters)."
@@ -1412,27 +1687,34 @@ def place_checkout_order():
             errors["customer_email"] = "Enter an email address for the payment receipt."
         elif len(email) > 50:
             errors["customer_email"] = "SSLCommerz requires an email address of 50 characters or fewer."
-        else:
-            payable = _checkout_totals(lines, None, division, coupon_code)["total"]
+        elif quantity is not None or is_cart_checkout:
+            payable = order_subtotal + DELIVERY_FEES.get(division, DELIVERY_FEES["Dhaka"])
+            coupon = CHECKOUT_COUPONS.get(coupon_code)
+            if coupon and order_subtotal >= coupon["minimum"]:
+                payable -= min(coupon["discount"], order_subtotal)
             if not 10 <= payable <= 500000:
                 errors["payment_method"] = "SSLCommerz supports online payments from ৳10 to ৳500,000."
     if coupon_code and coupon_code not in CHECKOUT_COUPONS:
         errors["coupon_code"] = "That coupon code is not valid."
-    elif coupon_code:
-        if order_subtotal < CHECKOUT_COUPONS[coupon_code]["minimum"]:
-            errors["coupon_code"] = "This coupon requires a subtotal of at least ৳ 500."
+    elif coupon_code and order_subtotal < CHECKOUT_COUPONS[coupon_code]["minimum"]:
+        errors["coupon_code"] = "This coupon requires a subtotal of at least ৳ 500."
 
     for item in lines:
         item["stock"] = _checkout_stock(item["slug"])
         if item["quantity"] > item["stock"]:
-            errors["quantity"] = (
-                f"Only {item['stock']} item(s) of {item['name']} are currently available."
-            )
+            errors["quantity"] = f"Only {item['stock']} item(s) of {item['name']} are currently available."
     if errors:
         context = _checkout_context(form_data, errors)
         return render_template("checkout.html", **context), 400
 
-    totals = _checkout_totals(lines, None, division, coupon_code)
+    coupon = CHECKOUT_COUPONS.get(coupon_code)
+    discount = min(coupon["discount"], order_subtotal) if coupon and order_subtotal >= coupon["minimum"] else 0
+    totals = {
+        "subtotal": order_subtotal,
+        "delivery_fee": DELIVERY_FEES[division],
+        "discount": discount,
+        "total": order_subtotal + DELIVERY_FEES[division] - discount,
+    }
     checkout_key = draft.get("checkout_key")
     if not checkout_key:
         flash("Your checkout session expired. Choose the product again.", "error")
@@ -1444,7 +1726,6 @@ def place_checkout_order():
     tracking_token = secrets.token_urlsafe(32)
     account_id = session.get("user_id")
     now = int(time.time())
-    inventory_conflict = False
     with database() as connection:
         existing = connection.execute(
             "SELECT order_number FROM orders WHERE checkout_key = ?", (checkout_key,)
@@ -1458,6 +1739,7 @@ def place_checkout_order():
                 ))
             flash("This checkout was already submitted.", "error")
             return redirect(url_for("products_page"))
+        inventory_conflict = False
         for item in lines:
             reserved = connection.execute(
                 "UPDATE product_inventory SET stock = stock - ? "
@@ -1468,38 +1750,63 @@ def place_checkout_order():
                 connection.rollback()
                 inventory_conflict = True
                 break
-        if not inventory_conflict:
-            connection.execute(
-                """INSERT INTO orders (
-                    order_number, checkout_key, tracking_token_hash, account_id,
-                    customer_name, customer_email, customer_phone, division, district,
-                    address, postal_code, delivery_note, subtotal, delivery_fee, discount,
-                    total, coupon_code, payment_method, order_status, payment_status, stock_reserved, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    order_number, checkout_key, hashlib.sha256(tracking_token.encode()).hexdigest(),
-                    account_id, name, email or None, phone, division, district, address,
-                    postal_code or None, delivery_note or None, totals["subtotal"],
-                    totals["delivery_fee"], totals["discount"], totals["total"],
-                    coupon_code or None, payment_method, order_status, payment_status, 1, now,
-                ),
+        if inventory_conflict:
+            context = _checkout_context(
+                form_data,
+                {"quantity": "Stock changed while you were checking out. Review the available quantities."},
             )
-            order_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
-            connection.executemany(
-                """INSERT INTO order_items
-                (order_id, product_slug, product_name, quantity, unit_price, variant_id)
-                VALUES (?, ?, ?, ?, ?, NULL)""",
-                [
-                    (order_id, item["slug"], item["name"], item["quantity"], item["price"])
-                    for item in lines
-                ],
-            )
-    if inventory_conflict:
-        context = _checkout_context(
-            form_data,
-            {"quantity": "Stock changed while you were checking out. Review the available quantities."},
+            return render_template("checkout.html", **context), 409
+        connection.execute(
+            """INSERT INTO orders (
+                order_number, checkout_key, tracking_token_hash, account_id,
+                customer_name, customer_email, customer_phone, division, district,
+                address, postal_code, delivery_note, subtotal, delivery_fee, discount,
+                total, coupon_code, payment_method, order_status, payment_status, stock_reserved, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                order_number, checkout_key, hashlib.sha256(tracking_token.encode()).hexdigest(),
+                account_id, name, email or None, phone, division, district, address,
+                postal_code or None, delivery_note or None, totals["subtotal"],
+                totals["delivery_fee"], totals["discount"], totals["total"],
+                coupon_code or None, payment_method, order_status, payment_status, 1, now,
+            ),
         )
-        return render_template("checkout.html", **context), 409
+        order_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+        connection.executemany(
+            """INSERT INTO order_items
+            (order_id, product_slug, product_name, quantity, unit_price, variant_id)
+            VALUES (?, ?, ?, ?, ?, NULL)""",
+            [
+                (order_id, item["slug"], item["name"], item["quantity"], item["price"])
+                for item in lines
+            ],
+        )
+        if is_cart_checkout:
+            placeholders = ", ".join("?" for _ in lines)
+            connection.execute(
+                f"DELETE FROM cart_items WHERE account_id = ? AND product_slug IN ({placeholders})",
+                (account_id, *(item["slug"] for item in lines)),
+            )
+        create_notification(
+            connection,
+            account_id,
+            "Order placed",
+            f"Order {order_number} was placed. "
+            + ("It is confirmed and awaiting payment on delivery."
+               if payment_method == "cod" else "Complete payment to confirm your order."),
+            url_for("my_orders_page", _anchor=f"order-{order_number}"),
+            now,
+        )
+        notify_staff(
+            connection,
+            "New order received",
+            f"{name} placed order {order_number} for "
+            + (f"{len(lines)} cart item(s)" if is_cart_checkout
+               else f"{lines[0]['name']} × {lines[0]['quantity']}"),
+            url_for("admin_dashboard") + "#orders",
+            exclude_account_id=account_id,
+            created_at=now,
+        )
 
     if payment_method != "cod":
         order = {
@@ -1516,7 +1823,8 @@ def place_checkout_order():
         }
         try:
             gateway_url = initiate_sslcommerz_payment(
-                order, ", ".join(item["name"] for item in lines)
+                order,
+                lines[0]["name"] if len(lines) == 1 else f"{len(lines)} cart items",
             )
         except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
             logging.warning("SSLCommerz payment session could not be created.")
@@ -1536,15 +1844,11 @@ def place_checkout_order():
         draft["order_number"] = order_number
         draft["tracking_token"] = tracking_token
         session["checkout_draft"] = draft
-        if is_cart_checkout:
-            _remove_checked_out_cart_items(lines)
         return redirect(gateway_url)
 
     draft["order_number"] = order_number
     draft["tracking_token"] = tracking_token
     session["checkout_draft"] = draft
-    if is_cart_checkout:
-        _remove_checked_out_cart_items(lines)
     return redirect(url_for("order_confirmation", order_number=order_number, token=tracking_token))
 
 
@@ -1708,6 +2012,11 @@ def place_bid(slug):
             flash(f"Your bid must be at least ৳ {minimum_bid:,}.", "error")
             return redirect(auction_url)
 
+        previous_leader = connection.execute(
+            "SELECT account_id, amount FROM auction_bids "
+            "WHERE auction_id = ? ORDER BY amount DESC, created_at DESC, id DESC LIMIT 1",
+            (auction["id"],),
+        ).fetchone()
         updated = connection.execute(
             "UPDATE auctions SET current_bid = ? WHERE id = ? AND current_bid = ? AND ends_at > ?",
             (amount, auction["id"], auction["current_bid"], now),
@@ -1718,6 +2027,31 @@ def place_bid(slug):
         connection.execute(
             "INSERT INTO auction_bids (auction_id, account_id, amount, created_at) VALUES (?, ?, ?, ?)",
             (auction["id"], session["user_id"], amount, now),
+        )
+        create_notification(
+            connection,
+            session["user_id"],
+            "Your bid was placed",
+            f"Your bid of ৳ {amount:,} on {listing['name']} was placed successfully.",
+            auction_url,
+            now,
+        )
+        if previous_leader and previous_leader["account_id"] != session["user_id"]:
+            create_notification(
+                connection,
+                previous_leader["account_id"],
+                "You have been outbid",
+                f"A higher bid was placed on {listing['name']}. The current bid is ৳ {amount:,}.",
+                auction_url,
+                now,
+            )
+        notify_staff(
+            connection,
+            "New auction bid",
+            f"A user bid ৳ {amount:,} on {listing['name']}.",
+            auction_url,
+            exclude_account_id=session["user_id"],
+            created_at=now,
         )
 
     flash(f"Your bid of ৳ {amount:,} was placed successfully.", "success")
@@ -1730,7 +2064,7 @@ def stylesheet():
 
 
 def valid_login_next_url(candidate):
-    allowed_destinations = {url_for("checkout_page")}
+    allowed_destinations = {url_for("checkout_page"), url_for("my_cart_page")}
     allowed_destinations.update(
         url_for("auction_details", slug=listing["slug"])
         for listing in get_auction_listings()
@@ -1828,6 +2162,157 @@ def require_staff():
     if not account or not account["is_active"] or account["role"] not in ("admin", "superadmin"):
         abort(403)
     return account_id
+
+
+@app.get("/profile")
+def profile_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        account = connection.execute(
+            "SELECT full_name, email, phone, role FROM accounts "
+            "WHERE id = ? AND is_active = 1 AND is_verified = 1",
+            (account_id,),
+        ).fetchone()
+    if not account:
+        abort(403)
+    return render_template("profile.html", account=account, active_page="profile")
+
+
+@app.post("/profile/update")
+def update_profile():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+
+    full_name = request.form.get("full_name", "").strip()
+    email = request.form.get("email", "").strip().casefold()
+    phone = request.form.get("phone", "").strip()
+    current_password = request.form.get("current_password", "")
+    new_password = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    with database() as connection:
+        account = connection.execute(
+            "SELECT full_name, email, phone, password_hash, role, is_active, is_verified "
+            "FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+    if not account or not account["is_active"] or not account["is_verified"]:
+        abort(403)
+
+    email_changed = email != account["email"].casefold()
+    if not full_name or len(full_name) > 120:
+        flash("Enter your name using no more than 120 characters.", "error")
+        return redirect(url_for("profile_page"))
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        flash("Enter a valid email address.", "error")
+        return redirect(url_for("profile_page"))
+    if len(phone) > 32:
+        flash("Phone number must be 32 characters or fewer.", "error")
+        return redirect(url_for("profile_page"))
+    if new_password or confirm_password:
+        if len(new_password) < 8:
+            flash("A new password must be at least 8 characters.", "error")
+            return redirect(url_for("profile_page"))
+        if new_password != confirm_password:
+            flash("The new password and confirmation do not match.", "error")
+            return redirect(url_for("profile_page"))
+    if email_changed or new_password:
+        if not current_password or not check_password_hash(account["password_hash"], current_password):
+            flash("Enter your current password to change your email or password.", "error")
+            return redirect(url_for("profile_page"))
+    if email_changed and not all(
+        os.getenv(setting) for setting in ("SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")
+    ):
+        flash(
+            "Email changes require verification. Configure email delivery before changing your email address.",
+            "error",
+        )
+        return redirect(url_for("profile_page"))
+
+    password_hash = generate_password_hash(new_password) if new_password else account["password_hash"]
+    try:
+        with database() as connection:
+            connection.execute(
+                "UPDATE accounts SET full_name = ?, email = ?, phone = ?, password_hash = ?, "
+                "is_verified = ?, verification_token_hash = NULL, verification_expires_at = NULL "
+                "WHERE id = ?",
+                (
+                    full_name,
+                    email,
+                    phone,
+                    password_hash,
+                    0 if email_changed else 1,
+                    account_id,
+                ),
+            )
+            if account["role"] == "user":
+                notify_staff(
+                    connection,
+                    "Customer profile updated",
+                    "A customer updated their account profile.",
+                    url_for("admin_dashboard") + "#orders",
+                    exclude_account_id=account_id,
+                )
+            elif account["role"] == "admin":
+                notify_superadmins(
+                    connection,
+                    "Admin profile updated",
+                    "An Admin updated their profile details.",
+                    url_for("admin_dashboard") + "#accounts",
+                    exclude_account_id=account_id,
+                )
+            elif account["role"] == "superadmin":
+                notify_superadmins(
+                    connection,
+                    "Superadmin profile updated",
+                    "A Superadmin updated their profile details.",
+                    url_for("admin_dashboard"),
+                    exclude_account_id=account_id,
+                )
+            if new_password:
+                create_notification(
+                    connection,
+                    account_id,
+                    "Password changed",
+                    "Your BidMart password was changed successfully.",
+                    url_for("profile_page"),
+                )
+            if email_changed:
+                create_notification(
+                    connection,
+                    account_id,
+                    "Email change needs verification",
+                    "Verify your new email address before signing in again.",
+                    url_for("registration_page"),
+                )
+    except sqlite3.IntegrityError:
+        flash("That email address is already associated with another account.", "error")
+        return redirect(url_for("profile_page"))
+
+    session["user_name"] = full_name
+    if email_changed:
+        session.pop("user_id", None)
+        session.pop("user_email", None)
+        session.pop("user_name", None)
+        session.pop("user_role", None)
+        try:
+            issue_verification(email)
+        except (RuntimeError, OSError, smtplib.SMTPException):
+            logging.exception("Profile email verification could not be sent")
+            flash(
+                "Your email was changed, but the verification message could not be sent. "
+                "Use the resend verification form with your new email address.",
+                "error",
+            )
+            return redirect(url_for("registration_page"))
+        flash("Your email was changed. Verify the new address before logging in again.", "success")
+        return redirect(url_for("login_page"))
+
+    flash("Your profile has been updated.", "success")
+    return redirect(url_for("profile_page"))
 
 
 def get_products(include_inactive=False):
@@ -2090,6 +2575,14 @@ def admin_create_product():
         flash("A product with that slug already exists.", "error")
         return redirect(url_for("admin_dashboard") + "#products")
     flash("Product created and published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product created",
+            f"An Admin added product {values['name']}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -2134,6 +2627,21 @@ def admin_update_product(slug):
     if not result.rowcount:
         abort(404)
     flash("Product details and stock updated.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product updated",
+            f"An Admin updated product {values['name']}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction product updated",
+            f"The product details for auction {slug} changed. Review the current listing.",
+            url_for("auction_details", slug=slug),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -2150,6 +2658,21 @@ def admin_set_product_status(slug, action):
     if not result.rowcount:
         abort(404)
     flash("Product archived." if action == "archive" else "Product restored.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Product availability changed",
+            f"An Admin {action}d product {slug}.",
+            url_for("admin_dashboard") + "#products",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction product availability changed",
+            f"The product status for auction {slug} changed. Check whether the auction is still available.",
+            url_for("auctions_page"),
+        )
     return redirect(url_for("admin_dashboard") + "#products")
 
 
@@ -2184,6 +2707,14 @@ def admin_create_auction():
                 flash("This product already has an auction listing.", "error")
                 return redirect(url_for("admin_dashboard") + "#auctions")
         flash("Auction published.", "success")
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction created",
+                f"An Admin created an auction for {existing_slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
         return redirect(url_for("admin_dashboard") + "#auctions")
     try:
         starting_bid = int(request.form.get("starting_bid", ""))
@@ -2231,6 +2762,14 @@ def admin_create_auction():
         flash("A product or auction with that slug already exists.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
     flash("Auction published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Auction created",
+            f"An Admin created an auction for {values['name']}.",
+            url_for("admin_dashboard") + "#auctions",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2288,6 +2827,21 @@ def admin_close_auction(slug):
         flash("That auction is already closed or was not found.", "error")
     else:
         flash("Auction closed; its bid history has been preserved.", "success")
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction closed",
+                f"An Admin closed the auction for {slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
+            notify_auction_bidders(
+                connection,
+                slug,
+                "Auction closed",
+                f"The auction for {slug} has been closed by the Admin.",
+                url_for("auction_details", slug=slug),
+            )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2322,6 +2876,21 @@ def admin_update_auction(slug):
         "Auction and product details updated." if values else "Auction details updated.",
         "success",
     )
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Auction updated",
+            f"An Admin updated the auction for {slug}.",
+            url_for("admin_dashboard") + "#auctions",
+            exclude_account_id=session.get("user_id"),
+        )
+        notify_auction_bidders(
+            connection,
+            slug,
+            "Auction details changed",
+            f"The auction details for {slug} have changed. Review the latest terms before bidding.",
+            url_for("auction_details", slug=slug),
+        )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2357,6 +2926,21 @@ def admin_reopen_auction(slug):
             else "Auction reopened with its bid history preserved.",
             "success",
         )
+        with database() as connection:
+            notify_superadmins(
+                connection,
+                "Auction reopened",
+                f"An Admin reopened the auction for {slug}.",
+                url_for("admin_dashboard") + "#auctions",
+                exclude_account_id=session.get("user_id"),
+            )
+            notify_auction_bidders(
+                connection,
+                slug,
+                "Auction reopened",
+                f"The auction for {slug} has reopened and is accepting bids again.",
+                url_for("auction_details", slug=slug),
+            )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2484,6 +3068,14 @@ def admin_create_offer():
         flash("That product slug is already in use. Choose a different slug.", "error")
         return redirect(url_for("admin_dashboard") + "#offers")
     flash("Offer product published.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer published",
+            f"An Admin published the offer {values['title']}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2529,6 +3121,14 @@ def admin_update_offer(offer_id):
             (values["stock"], values["slug"]),
         )
     flash("Offer product updated.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer updated",
+            f"An Admin updated the offer {values['title']}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2546,6 +3146,14 @@ def admin_delete_offer(slug):
     if not result.rowcount:
         abort(404)
     flash("Offer product archived; its order history was preserved.", "success")
+    with database() as connection:
+        notify_superadmins(
+            connection,
+            "Offer archived",
+            f"An Admin archived the offer {slug}.",
+            url_for("admin_dashboard") + "#offers",
+            exclude_account_id=session.get("user_id"),
+        )
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
@@ -2560,7 +3168,8 @@ def admin_update_order_status(order_id):
     }
     with database() as connection:
         order = connection.execute(
-            "SELECT order_status, payment_method, payment_status FROM orders WHERE id = ?",
+            "SELECT order_number, account_id, order_status, payment_method, payment_status "
+            "FROM orders WHERE id = ?",
             (order_id,),
         ).fetchone()
         if not order:
@@ -2574,6 +3183,20 @@ def admin_update_order_status(order_id):
             connection.execute(
                 "UPDATE orders SET order_status = ? WHERE id = ? AND order_status = ?",
                 (requested_status, order_id, order["order_status"]),
+            )
+            create_notification(
+                connection,
+                order["account_id"],
+                "Order status updated",
+                f"Order {order['order_number']} is now {requested_status}.",
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
+            )
+            notify_superadmins(
+                connection,
+                "Order status updated",
+                f"An Admin moved order {order['order_number']} to {requested_status}.",
+                url_for("admin_dashboard") + "#orders",
+                exclude_account_id=session.get("user_id"),
             )
             flash(f"Order moved to {requested_status}.", "success")
     return redirect(url_for("admin_dashboard") + "#orders")
@@ -2598,16 +3221,52 @@ def superadmin_update_account(account_id):
             flash("Superadmin accounts cannot be changed from this screen.", "error")
         elif action == "make_admin":
             connection.execute("UPDATE accounts SET role = 'admin' WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account role updated",
+                "A Superadmin changed your account role to Admin.",
+                url_for("profile_page"),
+            )
             flash("Account role changed to Admin.", "success")
         elif action == "make_user":
             connection.execute("UPDATE accounts SET role = 'user' WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account role updated",
+                "A Superadmin changed your account role to User.",
+                url_for("profile_page"),
+            )
             flash("Account role changed to User.", "success")
         elif action == "activate":
             connection.execute("UPDATE accounts SET is_active = 1 WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account activated",
+                "A Superadmin reactivated your BidMart account.",
+                url_for("profile_page"),
+            )
             flash("Account activated.", "success")
         else:
             connection.execute("UPDATE accounts SET is_active = 0 WHERE id = ?", (account_id,))
+            create_notification(
+                connection,
+                account_id,
+                "Account deactivated",
+                "A Superadmin deactivated your BidMart account. Contact support if you believe this is a mistake.",
+                url_for("login_page"),
+            )
             flash("Account deactivated.", "success")
+        if account["role"] != "superadmin":
+            notify_superadmins(
+                connection,
+                "Account access updated",
+                f"A Superadmin applied the {action.replace('_', ' ')} action to account {account_id}.",
+                url_for("admin_dashboard") + "#accounts",
+                exclude_account_id=superadmin_id,
+            )
     return redirect(url_for("admin_dashboard") + "#accounts")
 
 
@@ -2645,8 +3304,29 @@ def review_admin_request(account_id, action):
                     "from their registration page.",
                     "success",
                 )
+                create_notification(
+                    connection,
+                    account_id,
+                    "Access request approved",
+                    "Your Admin access request was approved. Complete email verification to activate your role.",
+                    url_for("registration_page"),
+                )
             else:
                 flash("Request rejected.", "success")
+                create_notification(
+                    connection,
+                    account_id,
+                    "Access request update",
+                    "Your elevated access request was not approved. Contact BidMart support if you need help.",
+                    url_for("registration_page"),
+                )
+            notify_superadmins(
+                connection,
+                "Elevated access request reviewed",
+                f"A Superadmin {status} an elevated access request.",
+                url_for("admin_role_requests_page"),
+                exclude_account_id=superadmin_id,
+            )
     return redirect(url_for("admin_role_requests_page"))
 
 
@@ -2722,6 +3402,22 @@ def register():
                     "INSERT INTO admin_role_requests (account_id, requested_role, status, requested_at) "
                     "VALUES (?, ?, 'pending', ?)",
                     (result.lastrowid, role, int(time.time())),
+                )
+                notify_superadmins(
+                    connection,
+                    "Elevated access request",
+                    f"A user submitted a request for {role.title()} access.",
+                    url_for("admin_role_requests_page"),
+                    created_at=int(time.time()),
+                )
+            else:
+                notify_staff(
+                    connection,
+                    "New customer account",
+                    "A new customer account was created and is awaiting email verification.",
+                    url_for("admin_dashboard") + "#orders",
+                    exclude_account_id=result.lastrowid,
+                    created_at=int(time.time()),
                 )
         if role in ("admin", "superadmin"):
             session["pending_role_request_account_id"] = result.lastrowid
@@ -2907,6 +3603,7 @@ def login():
         return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
 
     checkout_draft = session.get("checkout_draft")
+    pending_cart_add = session.get("pending_cart_add")
     session.clear()
     session["user_id"] = account["id"]
     session["user_email"] = account["email"]
@@ -2914,6 +3611,19 @@ def login():
     session["user_role"] = account["role"]
     if checkout_draft:
         session["checkout_draft"] = checkout_draft
+    if pending_cart_add:
+        session["pending_cart_add"] = pending_cart_add
+        error = _save_cart_item(
+            account["id"],
+            pending_cart_add.get("slug", ""),
+            pending_cart_add.get("quantity", 1),
+            add_quantity=True,
+        )
+        session.pop("pending_cart_add", None)
+        if error:
+            flash(error, "error")
+        else:
+            flash("Product added to your cart.", "success")
     flash("You are logged in.", "success")
     return redirect(next_url or url_for("home"))
 

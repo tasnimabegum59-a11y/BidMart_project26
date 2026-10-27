@@ -193,7 +193,7 @@
                         {% if stock_available %}All {{ item_count }} item(s) are currently available.{% else %}Some item quantities exceed current stock.{% endif %}
                     </p>
                     {% if is_cart_checkout %}
-                    <a class="checkout-edit-link" href="{{ url_for('cart_page') }}">Edit cart or quantities</a>
+                    <a class="checkout-edit-link" href="{{ url_for('my_cart_page') }}">Edit cart or quantities</a>
                     {% else %}
                     <a class="checkout-edit-link" href="{{ url_for('product_details_page', slug=product.slug) }}">Edit product or quantity</a>
                     {% endif %}
@@ -290,5 +290,6 @@
             checkoutSubmit.textContent = "Continue to SSLCommerz";
         }
     </script>
+    {% include "site_footer.html" %}
 </body>
 </html>

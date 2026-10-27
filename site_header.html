@@ -29,6 +29,15 @@
                 <span class="profile-trigger-role">{{ current_user_role|title }}</span>
             </span>
         </button>
+        <a class="notification-bell" href="{{ url_for('notifications_page') }}"
+           aria-label="Notifications, {{ unread_notification_count }} unread">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+            </svg>
+            {% if unread_notification_count %}
+            <span class="notification-count" aria-hidden="true">{{ unread_notification_count }}</span>
+            {% endif %}
+        </a>
         {% if current_user_role == "superadmin" %}
         <a class="superadmin-notifications" href="{{ url_for('admin_role_requests_page') }}"
            aria-label="{{ pending_role_request_count }} pending access requests">
@@ -55,7 +64,7 @@
         </nav>
 
         <div class="nav-buttons">
-            <a href="{{ url_for('cart_page') }}" class="cart-nav-link"{% if active_page == "cart" %} aria-current="page"{% endif %}>
+            <a href="{{ url_for('my_cart_page') }}" class="cart-nav-link"{% if active_page == "cart" %} aria-current="page"{% endif %}>
                 <span aria-hidden="true">🛒</span> Cart
                 <span class="cart-nav-count" aria-label="{{ cart_count }} items">{{ cart_count }}</span>
             </a>
@@ -107,16 +116,20 @@
                 <span aria-hidden="true">▤</span> Store dashboard
             </a>
             {% endif %}
-            <span class="dashboard-item is-unavailable" aria-disabled="true">
-                <span aria-hidden="true">♙</span> My Profile <small>Coming soon</small>
-            </span>
-            {% if current_user_role not in ("admin", "superadmin") %}
-            <a class="dashboard-item{% if active_page == 'products' %} is-active{% endif %}" href="{{ url_for('products_page') }}"{% if active_page == "products" %} aria-current="page"{% endif %}>
-                <span aria-hidden="true">▣</span> My Products
+            <a class="dashboard-item{% if active_page == 'profile' %} is-active{% endif %}" href="{{ url_for('profile_page') }}"{% if active_page == "profile" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">♙</span> My Profile
             </a>
-            <span class="dashboard-item is-unavailable" aria-disabled="true">
-                <span aria-hidden="true">▤</span> My Orders <small>Coming soon</small>
-            </span>
+            <a class="dashboard-item{% if active_page == 'notifications' %} is-active{% endif %}" href="{{ url_for('notifications_page') }}"{% if active_page == "notifications" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">♧</span> Notifications
+                {% if unread_notification_count %}<small class="dashboard-request-count">{{ unread_notification_count }} unread</small>{% endif %}
+            </a>
+            {% if current_user_role not in ("admin", "superadmin") %}
+            <a class="dashboard-item{% if active_page == 'my_cart' %} is-active{% endif %}" href="{{ url_for('my_cart_page') }}"{% if active_page == "my_cart" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">▣</span> My Cart
+            </a>
+            <a class="dashboard-item{% if active_page == 'my_orders' %} is-active{% endif %}" href="{{ url_for('my_orders_page') }}"{% if active_page == "my_orders" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">▤</span> My Orders
+            </a>
             {% endif %}
             <span class="dashboard-item is-unavailable" aria-disabled="true">
                 <span aria-hidden="true">↗</span> Analytics <small>Coming soon</small>

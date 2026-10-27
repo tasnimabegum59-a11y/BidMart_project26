@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Review and manage the products in your BidMart cart.">
+    <title>My Cart | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "my_cart" %}
+    {% include "site_header.html" %}
+
+    <main class="cart-page">
+        <div class="container">
+            <div class="cart-heading">
+                <p class="tagline">YOUR SHOPPING</p>
+                <h1>My Cart</h1>
+                <p>Review your products and quantities before continuing to delivery and payment.</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="cart-flashes" role="status">
+                    {% for category, message in messages %}
+                    <p class="flash-message flash-{{ category }}">{{ message }}</p>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            {% if items %}
+            <div class="cart-layout">
+            <div class="cart-items">
+                {% for item in items %}
+                <article class="cart-item" data-cart-line data-line-total="{{ item.product.price * item.quantity if item.product else 0 }}" data-stock="{{ item.stock }}" data-quantity="{{ item.quantity }}">
+                    {% if item.product %}
+                    <label class="cart-select-control">
+                        <input type="checkbox" name="selected_products" value="{{ item.slug }}" form="cartCheckoutForm" checked aria-label="Select {{ item.product.name }} for checkout">
+                        <span aria-hidden="true"></span>
+                    </label>
+                    {% endif %}
+                    {% if item.product and item.product.image %}
+                    <img class="cart-item-image" src="{{ url_for('static', filename=item.product.image) }}" alt="{{ item.product.name }}">
+                    {% elif item.product and item.product.icon %}
+                    <div class="cart-item-icon" aria-hidden="true">{{ item.product.icon }}</div>
+                    {% else %}
+                    <div class="cart-item-icon" aria-hidden="true">!</div>
+                    {% endif %}
+
+                    <div class="cart-item-info">
+                        {% if item.product %}
+                        <h2><a href="{{ url_for('product_details_page', slug=item.slug) }}">{{ item.product.name }}</a></h2>
+                        <p>{{ item.product.category }}</p>
+                        <strong>৳ {{ "{:,}".format(item.product.price) }} each</strong>
+                        {% else %}
+                        <h2>Product unavailable</h2>
+                        <p>This listing is no longer available.</p>
+                        {% endif %}
+                        {% if item.product and item.stock < 1 %}
+                        <p class="cart-item-warning">Out of stock</p>
+                        {% elif item.product and item.quantity > item.stock %}
+                        <p class="cart-item-warning">Only {{ item.stock }} item(s) are available. Update the quantity to continue.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="cart-item-controls">
+                        {% if item.product %}
+                        <form class="cart-quantity-form" method="post" action="{{ url_for('update_cart_item', slug=item.slug) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <label for="quantity-{{ loop.index }}">Quantity</label>
+                            <input id="quantity-{{ loop.index }}" name="quantity" type="number" min="1" max="{{ [item.stock, 99]|min }}" value="{{ item.quantity }}" required {% if item.stock < 1 %}disabled{% endif %}>
+                            <button type="submit" class="cart-secondary-button" {% if item.stock < 1 %}disabled{% endif %}>Update</button>
+                        </form>
+                        {% endif %}
+                        <form method="post" action="{{ url_for('remove_cart_item', slug=item.slug) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="cart-remove-button" type="submit">Remove</button>
+                        </form>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            <aside class="cart-summary" aria-labelledby="cartSummaryHeading">
+                <h2 id="cartSummaryHeading">Order summary</h2>
+                <p id="cartSelectionCount"></p>
+                <div class="cart-summary-lines">
+                    <div><span>Selected subtotal</span><strong id="cartSelectedSubtotal"></strong></div>
+                    <div><span>Delivery</span><strong>Calculated at checkout</strong></div>
+                    <div class="cart-summary-total"><span>Estimated total</span><strong id="cartEstimatedTotal"></strong></div>
+                </div>
+                <form id="cartCheckoutForm" method="post" action="{{ url_for('start_cart_checkout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="cart-order-button" id="cartCheckoutButton" type="submit">Checkout selected items</button>
+                </form>
+                <p class="cart-selection-help">Choose the products you want to order. Unselected items stay in your cart.</p>
+            </aside>
+            </div>
+            {% else %}
+            <section class="cart-empty">
+                <span aria-hidden="true">▣</span>
+                <h2>Your cart is empty</h2>
+                <p>Add products from the home page, product catalog, or offers to see them here.</p>
+                <a class="cart-order-button" href="{{ url_for('products_page') }}">Browse Products</a>
+            </section>
+            {% endif %}
+        </div>
+    </main>
+    {% if items %}
+    <script>
+        const cartLines = Array.from(document.querySelectorAll('[data-cart-line]'));
+        const selectedCount = document.getElementById('cartSelectionCount');
+        const selectedSubtotal = document.getElementById('cartSelectedSubtotal');
+        const estimatedTotal = document.getElementById('cartEstimatedTotal');
+        const checkoutButton = document.getElementById('cartCheckoutButton');
+
+        function updateCartSummary() {
+            const selected = cartLines.filter(line => line.querySelector('input[name="selected_products"]')?.checked);
+            const quantity = selected.reduce((sum, line) => sum + Number(line.dataset.quantity), 0);
+            const subtotal = selected.reduce((sum, line) => sum + Number(line.dataset.lineTotal), 0);
+            const available = selected.every(line => Number(line.dataset.quantity) <= Number(line.dataset.stock));
+            selectedCount.textContent = `${quantity} item${quantity === 1 ? '' : 's'} selected`;
+            selectedSubtotal.textContent = `৳ ${subtotal.toLocaleString('en-US')}`;
+            estimatedTotal.textContent = `৳ ${subtotal.toLocaleString('en-US')}`;
+            checkoutButton.disabled = selected.length === 0 || !available;
+            checkoutButton.textContent = selected.length === 0 ? 'Select at least one item' : (available ? 'Checkout selected items' : 'Review item availability');
+        }
+        cartLines.forEach(line => line.querySelector('input[name="selected_products"]')?.addEventListener('change', updateCartSummary));
+        updateCartSummary();
+    </script>
+    {% endif %}
+    {% include "site_footer.html" %}
+</body>
+</html>

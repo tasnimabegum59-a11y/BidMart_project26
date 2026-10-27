@@ -101,7 +101,7 @@
                             <input id="productQuantity" name="quantity" type="number" min="1" max="{{ stock }}" value="1" inputmode="numeric" required {% if stock < 1 %}disabled{% endif %}>
                         </div>
                         <button class="product-detail-buy" id="productBuyNow" type="submit" {% if stock < 1 %}disabled{% endif %}>
-                            {% if stock > 0 %}{% if current_user_email %}Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
+                            {% if stock > 0 %}Order Now{% else %}Out of stock{% endif %}
                         </button>
                         <button class="product-detail-add-cart" type="submit" formaction="{{ url_for('add_to_cart') }}" {% if stock < 1 %}disabled{% endif %}>
                             ＋ Add to Cart
@@ -114,6 +114,9 @@
                         {% endfor %}
                     </ul>
                     <p class="product-detail-sku">Listing ID: BM-{{ product.slug|upper }}</p>
+                    {% if current_user_role in ("admin", "superadmin") %}
+                    <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
+                    {% endif %}
                 </div>
             </section>
 
@@ -195,15 +198,7 @@
         </div>
     </main>
 
-    <footer class="footer">
-        <div class="container footer-content">
-            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
-                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-            </a>
-            <p>© 2026 BidMart. CSE Project Work II.</p>
-            <p>North East University Bangladesh</p>
-        </div>
-    </footer>
+    {% include "site_footer.html" %}
 
     <script>
         const productMainImage = document.getElementById("productMainImage");

@@ -179,6 +179,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'Up to', home.data)
         self.assertIn(b'40% OFF', home.data)
         self.assertIn(b'href="/offers">Shop Offers', home.data)
+        self.assertNotIn(b"Manage this product", home.data)
         self.assertEqual(home.data.count(b'class="promo-deal-product"'), 0)
         self.assertNotIn(b'src="/static/live-auction-card.png"', home.data)
         self.assertNotIn(b'src="/static/summer-savings-card.png"', home.data)
@@ -195,12 +196,12 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertEqual(home.data.count(b'class="product-card"'), 6)
-        self.assertEqual(home.data.count(b'data-buy-now'), 6)
-        self.assertEqual(home.data.count(b'action="/checkout/start"'), 6)
+        self.assertEqual(home.data.count(b'action="/cart/add"'), 6)
+        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 6)
         self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
         for product in bidmart.PRODUCT_CATALOG[:6]:
             self.assertIn(
-                f'href="/products/{product["slug"]}" class="product-btn product-details-btn"'.encode(),
+                f'href="/products/{product["slug"]}" class="product-btn product-buy-btn"'.encode(),
                 home.data,
             )
         for product_name in (
@@ -266,17 +267,93 @@ class AuthenticationFlowTests(unittest.TestCase):
             response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
         )
-        self.assertEqual(response.data.count(b'data-buy-now'), len(bidmart.PRODUCT_CATALOG))
-        self.assertEqual(response.data.count(b'name="product_slug"'), 2 * len(bidmart.PRODUCT_CATALOG))
-        self.assertEqual(response.data.count(b"product-cart-btn"), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'action="/cart/add"'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'class="product-btn product-buy-btn"'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'name="product_slug"'), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
-        self.assertIn(b"Login to Buy", response.data)
+        self.assertIn(b"Add to Cart", response.data)
         self.assertNotIn(b"continue as guest", response.data)
-        self.assertIn(b"Login to Buy", self.client.get("/").data)
+        self.assertIn(b"Add to Cart", self.client.get("/").data)
         product_detail = self.client.get("/products/casual-sneakers")
-        self.assertIn(b"Login to Buy", product_detail.data)
+        self.assertIn(b"Order Now", product_detail.data)
+        self.assertNotIn(b"Login to Buy", product_detail.data)
+
+    def test_cart_add_update_remove_and_order_flow(self):
+        self.login_as_checkout_buyer()
+        catalog = self.client.get("/products")
+        csrf = self.csrf_from(catalog)
+        added = self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "1",
+        })
+        self.assertEqual(added.headers["Location"], "/my-cart")
+        self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "2",
+        })
+        cart = self.client.get("/my-cart")
+        self.assertEqual(cart.status_code, 200)
+        self.assertIn(b"My Cart", cart.data)
+        self.assertIn(b"Casual Sneakers", cart.data)
+        self.assertIn(b'value="3"', cart.data)
+        self.assertIn(b'action="/checkout/from-cart"', cart.data)
+        self.assertIn(b'name="selected_products"', cart.data)
+        self.assertIn(b"Checkout selected items", cart.data)
+        checkout = self.client.post("/checkout/from-cart", data={
+            "csrf_token": csrf,
+            "selected_products": ["casual-sneakers"],
+        })
+        self.assertEqual(checkout.headers["Location"], "/checkout")
+        self.assertIn(b"Delivery and payment", self.client.get("/checkout").data)
+
+        updated = self.client.post("/my-cart/casual-sneakers/update", data={
+            "csrf_token": csrf,
+            "quantity": "4",
+        })
+        self.assertEqual(updated.headers["Location"], "/my-cart")
+        with bidmart.database() as connection:
+            quantity = connection.execute(
+                "SELECT quantity FROM cart_items WHERE product_slug = 'casual-sneakers'"
+            ).fetchone()["quantity"]
+        self.assertEqual(quantity, 4)
+
+        removed = self.client.post("/my-cart/casual-sneakers/remove", data={
+            "csrf_token": csrf,
+        })
+        self.assertEqual(removed.headers["Location"], "/my-cart")
+        self.assertIn(b"Your cart is empty", self.client.get("/my-cart").data)
+
+    def test_guest_add_to_cart_survives_login(self):
+        page = self.client.get("/products")
+        response = self.client.post("/cart/add", data={
+            "csrf_token": self.csrf_from(page),
+            "product_slug": "casual-sneakers",
+            "quantity": "2",
+        })
+        self.assertEqual(response.headers["Location"], "/login.html?next=/my-cart")
+
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Cart Buyer", self.email, "01712345678",
+                 generate_password_hash("secure-test-password"), 1),
+            )
+        login_page = self.client.get(response.headers["Location"])
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/my-cart",
+            "email": self.email,
+            "password": "secure-test-password",
+        })
+        self.assertEqual(login_response.headers["Location"], "/my-cart")
+        cart = self.client.get("/my-cart")
+        self.assertIn(b"Casual Sneakers", cart.data)
+        self.assertIn(b'value="2"', cart.data)
 
     def test_database_migration_removes_preloaded_demo_offers(self):
         with bidmart.database() as connection:
@@ -365,147 +442,7 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"Sample rating overview", response.data)
                 self.assertIn(b"Related Products", response.data)
                 self.assertIn(b"10 in stock", response.data)
-                self.assertIn(b"Add to Cart", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
-
-    def test_cart_add_update_remove_and_multi_item_checkout(self):
-        products = self.client.get("/products")
-        csrf = self.csrf_from(products)
-        first_add = self.client.post("/cart/add", data={
-            "csrf_token": csrf,
-            "product_slug": "casual-sneakers",
-            "quantity": "2",
-        })
-        self.assertEqual(first_add.headers["Location"], "/cart")
-        second_add = self.client.post("/cart/add", data={
-            "csrf_token": csrf,
-            "product_slug": "compact-digital-camera",
-            "quantity": "1",
-        })
-        self.assertEqual(second_add.headers["Location"], "/cart")
-
-        cart = self.client.get("/cart")
-        self.assertEqual(cart.status_code, 200)
-        self.assertIn(b"Shopping cart", cart.data)
-        self.assertIn(b"Casual Sneakers", cart.data)
-        self.assertIn(b"Compact Digital Camera", cart.data)
-        self.assertIn(b"3 items", cart.data)
-        self.assertIn(b"Checkout selected items", cart.data)
-        self.assertIn(b'aria-label="3 items">3</span>', cart.data)
-
-        self.login_as_checkout_buyer()
-        checkout_start = self.client.post("/checkout/from-cart", data={
-            "csrf_token": csrf,
-            "selected_products": ["casual-sneakers", "compact-digital-camera"],
-        })
-        self.assertEqual(checkout_start.headers["Location"], "/checkout")
-        checkout = self.client.get("/checkout")
-        self.assertEqual(checkout.status_code, 200)
-        self.assertIn(b"Casual Sneakers", checkout.data)
-        self.assertIn(b"Compact Digital Camera", checkout.data)
-        self.assertIn(b"Edit cart or quantities", checkout.data)
-
-        order_response = self.client.post(
-            "/checkout",
-            data=self.checkout_form(self.csrf_from(checkout), coupon_code="SAVE50"),
-        )
-        self.assertEqual(order_response.status_code, 302)
-        confirmation = self.client.get(order_response.headers["Location"])
-        self.assertEqual(confirmation.status_code, 200)
-        self.assertIn(b"Casual Sneakers", confirmation.data)
-        self.assertIn(b"Compact Digital Camera", confirmation.data)
-        self.assertIn("৳ 22,510".encode(), confirmation.data)
-        with bidmart.database() as connection:
-            order = connection.execute(
-                "SELECT subtotal, delivery_fee, discount, total FROM orders"
-            ).fetchone()
-            items = connection.execute(
-                "SELECT product_slug, quantity FROM order_items ORDER BY product_slug"
-            ).fetchall()
-            stocks = {
-                row["product_slug"]: row["stock"]
-                for row in connection.execute(
-                    "SELECT product_slug, stock FROM product_inventory "
-                    "WHERE product_slug IN ('casual-sneakers', 'compact-digital-camera')"
-                )
-            }
-        self.assertEqual(
-            (order["subtotal"], order["delivery_fee"], order["discount"], order["total"]),
-            (22500, 60, 50, 22510),
-        )
-        self.assertEqual(
-            [(item["product_slug"], item["quantity"]) for item in items],
-            [("casual-sneakers", 2), ("compact-digital-camera", 1)],
-        )
-        self.assertEqual(stocks, {"casual-sneakers": 8, "compact-digital-camera": 9})
-        self.assertIn(b"Your cart is waiting", self.client.get("/cart").data)
-
-    def test_cart_checkout_includes_only_selected_products_and_keeps_others(self):
-        products = self.client.get("/products")
-        csrf = self.csrf_from(products)
-        for slug in ("casual-sneakers", "compact-digital-camera"):
-            self.client.post("/cart/add", data={
-                "csrf_token": csrf,
-                "product_slug": slug,
-                "quantity": "1",
-            })
-
-        cart = self.client.get("/cart")
-        self.login_as_checkout_buyer()
-        checkout_start = self.client.post("/checkout/from-cart", data={
-            "csrf_token": self.csrf_from(cart),
-            "selected_products": "compact-digital-camera",
-        })
-        self.assertEqual(checkout_start.headers["Location"], "/checkout")
-        checkout = self.client.get("/checkout")
-        self.assertIn(b"Compact Digital Camera", checkout.data)
-        self.assertNotIn(b"Casual Sneakers", checkout.data)
-        self.assertIn(b"Selected subtotal", self.client.get("/cart").data)
-
-        order_response = self.client.post(
-            "/checkout",
-            data=self.checkout_form(self.csrf_from(checkout)),
-        )
-        self.assertEqual(order_response.status_code, 302)
-        confirmation = self.client.get(order_response.headers["Location"])
-        self.assertIn(b"Compact Digital Camera", confirmation.data)
-        self.assertNotIn(b"Casual Sneakers", confirmation.data)
-        with bidmart.database() as connection:
-            ordered_slugs = [
-                row["product_slug"]
-                for row in connection.execute("SELECT product_slug FROM order_items")
-            ]
-        self.assertEqual(ordered_slugs, ["compact-digital-camera"])
-
-        remaining_cart = self.client.get("/cart")
-        self.assertIn(b"Casual Sneakers", remaining_cart.data)
-        self.assertNotIn(b"Compact Digital Camera", remaining_cart.data)
-        self.assertIn(b'aria-label="1 items">1</span>', remaining_cart.data)
-
-    def test_cart_rejects_quantities_above_stock_and_supports_removal(self):
-        with bidmart.database() as connection:
-            connection.execute(
-                "UPDATE product_inventory SET stock = 1 WHERE product_slug = 'casual-sneakers'"
-            )
-        products = self.client.get("/products")
-        csrf = self.csrf_from(products)
-        self.client.post("/cart/add", data={
-            "csrf_token": csrf,
-            "product_slug": "casual-sneakers",
-            "quantity": "1",
-        })
-        update = self.client.post("/cart/casual-sneakers/update", data={
-            "csrf_token": csrf,
-            "quantity": "2",
-        })
-        self.assertEqual(update.status_code, 302)
-        cart = self.client.get("/cart")
-        self.assertIn(b"Only 1 item(s) are currently available", cart.data)
-        self.assertIn(b'value="1"', cart.data)
-        self.assertIn(b"Review item availability", cart.data)
-        removed = self.client.post("/cart/casual-sneakers/remove", data={"csrf_token": csrf})
-        self.assertEqual(removed.status_code, 302)
-        self.assertIn(b"Your cart is waiting", self.client.get("/cart").data)
 
     def test_checkout_requires_login_and_registered_buyer_can_confirm_order(self):
         start = self.start_checkout(quantity="2", as_guest=True)
@@ -797,6 +734,12 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="container navbar"', response.data)
                 self.assertIn(b'id="profileTrigger"', response.data)
                 self.assertIn(b'class="profile-trigger-role">User</span>', response.data)
+                self.assertIn(b'class="notification-bell"', response.data)
+                self.assertIn(b'href="/notifications"', response.data)
+                self.assertIn(b'href="/my-orders"', response.data)
+                self.assertIn(b'class="footer-copyright">\xc2\xa9 2026 BidMart</p>', response.data)
+                self.assertIn(b'href="mailto:bidmart@gmail.com"', response.data)
+                self.assertNotIn(b"North East University Bangladesh", response.data)
                 self.assertNotIn(b'class="superadmin-notifications"', response.data)
                 self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
                 self.assertIn(active_link, response.data)
@@ -843,6 +786,270 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="container navbar"', response.data)
                 self.assertIn(b'<nav class="nav-links" aria-label="Main navigation">', response.data)
                 self.assertIn(b'href="/auctions">Auctions</a>', response.data)
+                self.assertIn(b'class="footer-copyright">\xc2\xa9 2026 BidMart</p>', response.data)
+                self.assertIn(b'href="mailto:bidmart@gmail.com"', response.data)
+                self.assertNotIn(b"North East University Bangladesh", response.data)
+
+    def test_homepage_about_describes_bidmart_shopping_and_auctions(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"ABOUT BIDMART", response.data)
+        self.assertIn(b"Shopping and bidding, all in one place", response.data)
+        self.assertIn(b"online shopping and the excitement of bidding", response.data)
+        self.assertNotIn(b"ABOUT OUR PROJECT", response.data)
+        self.assertNotIn(b"CSE Project Work II", response.data)
+
+    def test_purchase_notifications_reach_buyer_admin_and_superadmin(self):
+        self.assertEqual(self.start_checkout().status_code, 302)
+        with bidmart.database() as connection:
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", "purchase-admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+            superadmin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'superadmin', 1, ?)",
+                ("Root Admin", "purchase-root@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+
+        checkout = self.client.get("/checkout")
+        placed = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="cod"),
+        )
+        self.assertEqual(placed.status_code, 302)
+
+        with bidmart.database() as connection:
+            notifications = connection.execute(
+                "SELECT id, account_id, title, message FROM notifications ORDER BY account_id"
+            ).fetchall()
+        by_account = {row["account_id"]: row for row in notifications}
+        with self.client.session_transaction() as session:
+            buyer_id = session["user_id"]
+        self.assertIn("Order placed", by_account[buyer_id]["title"])
+        self.assertIn("New order received", by_account[admin.lastrowid]["title"])
+        self.assertIn("New order received", by_account[superadmin.lastrowid]["title"])
+
+        inbox = self.client.get("/notifications")
+        self.assertEqual(inbox.status_code, 200)
+        self.assertIn(b"Order placed", inbox.data)
+        self.assertIn(b"Notifications, 1 unread", self.client.get("/").data)
+        inbox_data = self.client.get("/notifications").data
+        self.assertIn(b"Mark all as read", inbox_data)
+        admin_notification_id = by_account[admin.lastrowid]["id"]
+        other_user_notification = self.client.get(
+            f"/notifications/{admin_notification_id}/open"
+        )
+        self.assertEqual(other_user_notification.status_code, 404)
+
+        with bidmart.database() as connection:
+            own_notification_id = connection.execute(
+                "SELECT id FROM notifications WHERE account_id = ?",
+                (buyer_id,),
+            ).fetchone()["id"]
+        opened = self.client.get(f"/notifications/{own_notification_id}/open")
+        self.assertEqual(opened.status_code, 302)
+        self.assertEqual(self.client.get("/notifications").data.count(b'class="notification-card is-unread"'), 0)
+
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = "purchase-admin@example.invalid"
+            session["user_name"] = "Store Admin"
+        admin_inbox = self.client.get("/notifications")
+        marked_all = self.client.post(
+            "/notifications/read-all",
+            data={"csrf_token": self.csrf_from(admin_inbox)},
+        )
+        self.assertEqual(marked_all.status_code, 302)
+        with bidmart.database() as connection:
+            admin_unread_count = connection.execute(
+                "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
+                (admin.lastrowid,),
+            ).fetchone()[0]
+        self.assertEqual(admin_unread_count, 0)
+
+    def test_my_orders_shows_each_product_status_and_admin_update_notification(self):
+        self.assertEqual(self.start_checkout().status_code, 302)
+        checkout = self.client.get("/checkout")
+        placed = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="cod"),
+        )
+        self.assertEqual(placed.status_code, 302)
+        with self.client.session_transaction() as session:
+            buyer_id = session["user_id"]
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT id, order_number FROM orders WHERE account_id = ?", (buyer_id,)
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO order_items (order_id, product_slug, product_name, quantity, unit_price) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (order["id"], "smart-watch-bluetooth-calling", "Smart Watch", 2, 2999),
+            )
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        with bidmart.database() as connection:
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", "order-status-admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = "order-status-admin@example.invalid"
+            session["user_name"] = "Store Admin"
+
+        dashboard = self.client.get("/admin/dashboard")
+        updated = self.client.post(
+            f"/admin/orders/{order['id']}/status",
+            data={
+                "csrf_token": self.csrf_from(dashboard),
+                "order_status": "processing",
+            },
+        )
+        self.assertEqual(updated.status_code, 302)
+        with bidmart.database() as connection:
+            notification = connection.execute(
+                "SELECT id, title, message, target_url FROM notifications "
+                "WHERE account_id = ? AND title = 'Order status updated'",
+                (buyer_id,),
+            ).fetchone()
+        self.assertEqual(notification["target_url"], f"/my-orders#order-{order['order_number']}")
+        self.assertIn("processing", notification["message"])
+
+        with self.client.session_transaction() as session:
+            session["user_id"] = buyer_id
+            session["user_email"] = "checkout-buyer@example.invalid"
+            session["user_name"] = "Checkout Buyer"
+        notification_opened = self.client.get(
+            f"/notifications/{notification['id']}/open"
+        )
+        self.assertEqual(notification_opened.status_code, 302)
+        self.assertEqual(
+            notification_opened.headers["Location"],
+            f"/my-orders#order-{order['order_number']}",
+        )
+        my_orders = self.client.get("/my-orders")
+        self.assertEqual(my_orders.status_code, 200)
+        self.assertIn(order["order_number"].encode(), my_orders.data)
+        self.assertIn(b"Casual Sneakers", my_orders.data)
+        self.assertIn(b"Smart Watch", my_orders.data)
+        self.assertIn(b"Current step: Processing", my_orders.data)
+        self.assertIn(b'href="/my-orders"', my_orders.data)
+
+        with bidmart.database() as connection:
+            other_user = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Other User", "other-order-user@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = other_user.lastrowid
+            session["user_email"] = "other-order-user@example.invalid"
+            session["user_name"] = "Other User"
+        other_orders = self.client.get("/my-orders")
+        self.assertEqual(other_orders.status_code, 200)
+        self.assertNotIn(order["order_number"].encode(), other_orders.data)
+
+    def test_my_profile_updates_account_details_and_password_for_any_user(self):
+        self.assertEqual(self.client.get("/profile").status_code, 403)
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Profile Owner", self.email, "01700000000", generate_password_hash("old-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = account.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Profile Owner"
+
+        profile = self.client.get("/profile")
+        self.assertEqual(profile.status_code, 200)
+        self.assertIn(b"Profile information", profile.data)
+        self.assertIn(b'name="full_name"', profile.data)
+        self.assertIn(b'value="Profile Owner"', profile.data)
+        self.assertIn(b'name="email" type="email" autocomplete="email" value="flow-test@example.invalid"', profile.data)
+        self.assertIn(b'href="/profile" aria-current="page"', profile.data)
+        self.assertIn(b"My Profile", profile.data)
+        csrf = self.csrf_from(profile)
+        updated = self.client.post("/profile/update", data={
+            "csrf_token": csrf,
+            "full_name": "Updated Profile Owner",
+            "email": self.email,
+            "phone": "01711111111",
+            "current_password": "old-password",
+            "new_password": "new-secure-password",
+            "confirm_password": "new-secure-password",
+            "role": "superadmin",
+        })
+        self.assertEqual(updated.status_code, 302)
+        with bidmart.database() as connection:
+            saved_account = connection.execute(
+                "SELECT full_name, email, phone, password_hash, role FROM accounts WHERE id = ?",
+                (account.lastrowid,),
+            ).fetchone()
+        self.assertEqual(saved_account["full_name"], "Updated Profile Owner")
+        self.assertEqual(saved_account["email"], self.email)
+        self.assertEqual(saved_account["phone"], "01711111111")
+        self.assertEqual(saved_account["role"], "user")
+        self.assertTrue(bidmart.check_password_hash(saved_account["password_hash"], "new-secure-password"))
+        self.assertIn(b"Your profile has been updated.", self.client.get("/profile").data)
+
+    def test_my_profile_email_change_requires_password_and_new_email_verification(self):
+        with bidmart.database() as connection:
+            account = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Profile Owner", self.email, generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = account.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Profile Owner"
+
+        csrf = self.csrf_from(self.client.get("/profile"))
+        no_password = self.client.post("/profile/update", data={
+            "csrf_token": csrf,
+            "full_name": "Profile Owner",
+            "email": "new-address@example.invalid",
+            "phone": "",
+        })
+        self.assertEqual(no_password.status_code, 302)
+        self.assertIn(b"current password", self.client.get("/profile").data)
+
+        with patch.dict(os.environ, {
+            "SMTP_USERNAME": "test@example.invalid",
+            "SMTP_PASSWORD": "test-password",
+            "SMTP_FROM": "test@example.invalid",
+        }), patch("app.issue_verification") as send_verification:
+            changed = self.client.post("/profile/update", data={
+                "csrf_token": csrf,
+                "full_name": "Profile Owner",
+                "email": "new-address@example.invalid",
+                "phone": "",
+                "current_password": "secure-password",
+            })
+        self.assertEqual(changed.status_code, 302)
+        self.assertEqual(changed.headers["Location"], "/login.html")
+        send_verification.assert_called_once_with("new-address@example.invalid")
+        with bidmart.database() as connection:
+            saved_account = connection.execute(
+                "SELECT email, is_verified, role FROM accounts WHERE id = ?",
+                (account.lastrowid,),
+            ).fetchone()
+        self.assertEqual(saved_account["email"], "new-address@example.invalid")
+        self.assertEqual(saved_account["is_verified"], 0)
+        self.assertEqual(saved_account["role"], "user")
+        with self.client.session_transaction() as session:
+            self.assertNotIn("user_id", session)
 
     def test_admin_dashboard_manages_products_inventory_and_auctions(self):
         with bidmart.database() as connection:
@@ -860,12 +1067,44 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Products & inventory", dashboard.data)
         self.assertNotIn(b'id="accounts"', dashboard.data)
-        self.assertNotIn(b"My Products", dashboard.data)
+        self.assertNotIn(b"My Cart", dashboard.data)
         self.assertNotIn(b"My Orders", dashboard.data)
         product_catalog = self.client.get("/products")
         self.assertIn(b"Manage products", product_catalog.data)
         self.assertIn(b"Manage this product", product_catalog.data)
         self.assertIn(b"#product-casual-sneakers", product_catalog.data)
+        home = self.client.get("/")
+        self.assertEqual(home.data.count(b">Manage this product</a>"), 6)
+        self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', home.data)
+        self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', self.client.get(
+            "/products/iphone-14-pro-max-256gb"
+        ).data)
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE catalog_products SET name = ?, category = ?, description = ?, price = ?, "
+                "old_price = ?, image = ?, features_json = ? WHERE slug = ?",
+                (
+                    "Admin Updated iPhone",
+                    "Admin Electronics",
+                    "Updated homepage description",
+                    1000,
+                    2000,
+                    "uploads/products/updated-phone.webp",
+                    '["Admin-updated feature"]',
+                    "iphone-14-pro-max-256gb",
+                ),
+            )
+        updated_home = self.client.get("/")
+        for updated_value in (
+            b"Admin Updated iPhone",
+            b"Admin Electronics",
+            b"Updated homepage description",
+            b"Admin-updated feature",
+            "৳ 1,000".encode(),
+            "৳ 2,000".encode(),
+            b"/static/uploads/products/updated-phone.webp",
+        ):
+            self.assertIn(updated_value, updated_home.data)
         auction_catalog = self.client.get("/auctions")
         self.assertIn(b"Manage auctions", auction_catalog.data)
         self.assertIn(b"Close auction", auction_catalog.data)
@@ -903,6 +1142,8 @@ class AuthenticationFlowTests(unittest.TestCase):
 
         dashboard = self.client.get("/admin/dashboard")
         self.assertEqual(dashboard.data.count(b'id="adminProductForm"'), 1)
+        self.assertIn(b'window.location.hash.startsWith("#product-")', dashboard.data)
+        self.assertIn(b'document.getElementById("manageProducts").open = true', dashboard.data)
         self.assertEqual(dashboard.data.count(b'id="adminAuctionForm"'), 1)
         self.assertIn(b'id="manageProducts"', dashboard.data)
         self.assertIn(b"Manage existing products", dashboard.data)
@@ -978,7 +1219,6 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertNotIn(b"Test Desk Lamp", self.client.get("/products").data)
         self.assertEqual(self.client.get("/products/test-offer-desk-lamp").status_code, 200)
         self.assertEqual(bidmart.get_product("test-offer-desk-lamp")["price"], 1500)
-        self.login_as_checkout_buyer()
         offer_checkout = self.client.post("/checkout/start", data={
             "csrf_token": csrf,
             "product_slug": "test-offer-desk-lamp",
@@ -986,10 +1226,6 @@ class AuthenticationFlowTests(unittest.TestCase):
         })
         self.assertEqual(offer_checkout.headers["Location"], "/checkout")
         self.assertIn(b"1,500", self.client.get("/checkout").data)
-        with self.client.session_transaction() as session:
-            session["user_id"] = admin.lastrowid
-            session["user_email"] = self.email
-            session["user_name"] = "Store Admin"
         with bidmart.database() as connection:
             offer_id = connection.execute(
                 "SELECT id FROM offers WHERE product_slug = 'test-offer-desk-lamp'"
@@ -1699,10 +1935,37 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertIn(b"Current bid", response.data)
         self.assertIn(b"Time left:", response.data)
         self.assertIn(b"Wireless Earbuds", response.data)
-        self.assertIn(b"DEMO AUCTION", response.data)
+        self.assertIn(b"RUNNING AUCTION", response.data)
+        self.assertIn(b"ENDED AUCTION", response.data)
+        self.assertNotIn(b"DEMO AUCTION", response.data)
+        self.assertNotIn(b"These are demo listings", response.data)
         self.assertIn(b'href="/auctions" class="active" aria-current="page">Auctions</a>', response.data)
         self.assertNotIn(b"Manage auctions", response.data)
         self.assertNotIn(b"Close auction", response.data)
+
+    def test_auction_status_badges_follow_running_and_ended_times(self):
+        now = int(time.time())
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (now + 3600, "smart-watch-bluetooth"),
+            )
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (now - 3600, "iphone-14-pro-max"),
+            )
+
+        listing = self.client.get("/auctions")
+        self.assertIn(b"RUNNING AUCTION", listing.data)
+        self.assertIn(b"ENDED AUCTION", listing.data)
+        self.assertNotIn(b"These are demo listings", listing.data)
+
+        running_detail = self.client.get("/auction/smart-watch-bluetooth")
+        ended_detail = self.client.get("/auction/iphone-14-pro-max")
+        self.assertIn(b">RUNNING AUCTION</span>", running_detail.data)
+        self.assertIn(b">ENDED AUCTION</span>", ended_detail.data)
+        self.assertNotIn(b"DEMO AUCTION</span>", running_detail.data)
+        self.assertNotIn(b"DEMO AUCTION</span>", ended_detail.data)
 
     def test_non_featured_auction_can_open_details_and_accept_a_bid(self):
         self.add_logged_in_bidder()

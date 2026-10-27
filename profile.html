@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="View and update your BidMart account profile.">
+    <title>My Profile | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body class="register-page">
+    {% include "site_header.html" %}
+
+    <main class="page-container">
+        <div class="page-heading">
+            <p class="eyebrow">ACCOUNT SETTINGS</p>
+            <h1>My Profile</h1>
+            <p>Update your account information and security details.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p class="form-message {{ category }}" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <div class="registration-grid single-registration">
+            <section class="register-card profile-card" aria-labelledby="profileFormTitle">
+                <div class="role-icon" aria-hidden="true">♙</div>
+                <h2 id="profileFormTitle">Profile information</h2>
+                <p class="role-description">Your account role is {{ account.role|title }}. For your security, it cannot be changed here.</p>
+
+                <form action="{{ url_for('update_profile') }}" method="post" id="profileForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <label for="profileName">Full name</label>
+                    <input id="profileName" name="full_name" type="text" autocomplete="name" maxlength="120" value="{{ account.full_name }}" required>
+
+                    <label for="profileEmail">Email address</label>
+                    <input id="profileEmail" name="email" type="email" autocomplete="email" value="{{ account.email }}" required>
+                    <p class="form-note">Changing your email requires verification at the new address.</p>
+
+                    <label for="profilePhone">Phone number</label>
+                    <input id="profilePhone" name="phone" type="tel" autocomplete="tel" maxlength="32" value="{{ account.phone }}">
+
+                    <div class="profile-password-section">
+                        <h3>Change password</h3>
+                        <p>Leave the new password fields blank to keep your current password.</p>
+                    </div>
+
+                    <label for="currentPassword">Current password <span class="profile-optional">(required to change email or password)</span></label>
+                    <input id="currentPassword" name="current_password" type="password" autocomplete="current-password">
+
+                    <label for="newPassword">New password</label>
+                    <input id="newPassword" name="new_password" type="password" autocomplete="new-password" minlength="8">
+
+                    <label for="confirmPassword">Confirm new password</label>
+                    <input id="confirmPassword" name="confirm_password" type="password" autocomplete="new-password" minlength="8">
+
+                    <button class="register-button" type="submit">Save changes</button>
+                </form>
+            </section>
+        </div>
+    </main>
+
+    {% include "site_footer.html" %}
+</body>
+</html>
