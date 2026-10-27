@@ -535,6 +535,7 @@ def csrf_context():
     current_user_email = None
     current_user_name = None
     pending_role_request_count = 0
+    cart_count = sum(_cart_quantities().values())
     if session.get("user_id"):
         with database() as connection:
             account = connection.execute(
@@ -554,6 +555,7 @@ def csrf_context():
         "current_user_email": current_user_email,
         "current_user_name": current_user_name,
         "pending_role_request_count": pending_role_request_count,
+        "cart_count": cart_count,
     }
 
 
@@ -600,6 +602,10 @@ def protect_post_requests():
                 "logout": "home",
                 "place_bid": "auction_details",
                 "start_checkout": "products_page",
+                "add_to_cart": "products_page",
+                "start_cart_checkout": "cart_page",
+                "update_cart_item": "cart_page",
+                "remove_cart_item": "cart_page",
                 "apply_checkout_coupon": "checkout_page",
                 "checkout_page": "checkout_page",
             }
@@ -756,12 +762,158 @@ def product_details_page(slug):
     )
 
 
+def _cart_quantities():
+    raw_cart = session.get("cart", {})
+    if not isinstance(raw_cart, dict):
+        return {}
+    cart = {}
+    for slug, raw_quantity in raw_cart.items():
+        quantity = _parse_quantity(raw_quantity)
+        if isinstance(slug, str) and quantity:
+            cart[slug] = quantity
+    return cart
+
+
+def _cart_items():
+    cart = _cart_quantities()
+    if not cart:
+        return []
+    products = {product["slug"]: product for product in get_products()}
+    with database() as connection:
+        inventory = {
+            row["product_slug"]: row["stock"]
+            for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
+        }
+    valid_cart = {}
+    items = []
+    for slug, quantity in cart.items():
+        product = products.get(slug)
+        if not product:
+            continue
+        stock = inventory.get(slug, 0)
+        valid_cart[slug] = quantity
+        items.append({
+            **product,
+            "quantity": quantity,
+            "stock": stock,
+            "line_total": product["price"] * quantity,
+        })
+    if valid_cart != cart:
+        session["cart"] = valid_cart
+    return items
+
+
+@app.get("/cart")
+def cart_page():
+    requested_cart = _cart_quantities()
+    items = _cart_items()
+    if requested_cart != _cart_quantities():
+        flash("Unavailable products were removed from your cart.", "error")
+    subtotal = sum(item["line_total"] for item in items)
+    return render_template(
+        "cart.html",
+        items=items,
+        subtotal=subtotal,
+        item_count=sum(item["quantity"] for item in items),
+        stock_available=all(item["quantity"] <= item["stock"] for item in items),
+        active_page="cart",
+    )
+
+
+@app.post("/cart/add")
+def add_to_cart():
+    slug = request.form.get("product_slug", "")
+    product = get_product(slug)
+    if not product:
+        abort(404)
+    quantity = _parse_quantity(request.form.get("quantity", "1"))
+    if quantity is None:
+        flash("Choose a quantity between 1 and 99.", "error")
+        return redirect(url_for("product_details_page", slug=slug))
+    stock = _checkout_stock(slug)
+    cart = _cart_quantities()
+    cart_quantity = cart.get(slug, 0) + quantity
+    if stock < 1:
+        flash(f"{product['name']} is currently out of stock.", "error")
+    elif cart_quantity > stock or cart_quantity > 99:
+        flash(f"Only {stock} item(s) of {product['name']} are currently available.", "error")
+    else:
+        cart[slug] = cart_quantity
+        session["cart"] = cart
+        flash(f"{product['name']} was added to your cart.", "success")
+    return redirect(url_for("cart_page"))
+
+
+@app.post("/cart/<slug>/update")
+def update_cart_item(slug):
+    cart = _cart_quantities()
+    if slug not in cart:
+        abort(404)
+    quantity = _parse_quantity(request.form.get("quantity"))
+    if quantity is None:
+        flash("Choose a quantity between 1 and 99.", "error")
+    else:
+        stock = _checkout_stock(slug)
+        if quantity > stock:
+            flash(f"Only {stock} item(s) are currently available.", "error")
+        else:
+            cart[slug] = quantity
+            session["cart"] = cart
+            flash("Cart quantity updated.", "success")
+    return redirect(url_for("cart_page"))
+
+
+@app.post("/cart/<slug>/remove")
+def remove_cart_item(slug):
+    cart = _cart_quantities()
+    if slug not in cart:
+        abort(404)
+    del cart[slug]
+    session["cart"] = cart
+    flash("Item removed from your cart.", "success")
+    return redirect(url_for("cart_page"))
+
+
 def _checkout_product():
     draft = session.get("checkout_draft")
     if not isinstance(draft, dict):
         return None
     slug = draft.get("product_slug")
     return get_product(slug)
+
+
+def _checkout_lines():
+    draft = session.get("checkout_draft")
+    if not isinstance(draft, dict):
+        return []
+    if isinstance(draft.get("cart_items"), list):
+        requested = draft["cart_items"]
+    else:
+        requested = [{"product_slug": draft.get("product_slug"), "quantity": draft.get("quantity")}]
+
+    products = {product["slug"]: product for product in get_products()}
+    with database() as connection:
+        inventory = {
+            row["product_slug"]: row["stock"]
+            for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
+        }
+
+    lines = []
+    for entry in requested:
+        if not isinstance(entry, dict):
+            return []
+        slug = entry.get("product_slug")
+        quantity = _parse_quantity(entry.get("quantity"))
+        product = products.get(slug)
+        if not product or quantity is None:
+            return []
+        lines.append({
+            **product,
+            "quantity": quantity,
+            "stock": inventory.get(slug, 0),
+            "line_total": product["price"] * quantity,
+        })
+    return lines
 
 
 def _parse_quantity(raw_quantity):
@@ -782,7 +934,10 @@ def _checkout_stock(slug):
 
 
 def _checkout_totals(product, quantity, division, coupon_code=""):
-    subtotal = product["price"] * quantity
+    if isinstance(product, list):
+        subtotal = sum(item["price"] * item["quantity"] for item in product)
+    else:
+        subtotal = product["price"] * quantity
     delivery_fee = DELIVERY_FEES.get(division, DELIVERY_FEES["Dhaka"])
     coupon = CHECKOUT_COUPONS.get(coupon_code.strip().upper())
     discount = 0
@@ -796,13 +951,22 @@ def _checkout_totals(product, quantity, division, coupon_code=""):
     }
 
 
+def _remove_checked_out_cart_items(lines):
+    cart = _cart_quantities()
+    for item in lines:
+        cart.pop(item["slug"], None)
+    session["cart"] = cart
+
+
 def _checkout_context(form_data=None, errors=None):
     draft = session.get("checkout_draft", {})
-    product = _checkout_product()
-    if not product:
+    lines = _checkout_lines()
+    if not lines:
         return None
-    quantity = _parse_quantity(draft.get("quantity")) or 1
-    stock = _checkout_stock(product["slug"])
+    product = lines[0]
+    quantity = product["quantity"]
+    stock = product["stock"]
+    is_cart_checkout = isinstance(draft.get("cart_items"), list)
     form_data = form_data or {}
     profile = {}
     if session.get("user_id"):
@@ -826,11 +990,19 @@ def _checkout_context(form_data=None, errors=None):
         "payment_method": form_data.get("payment_method", "cod"),
         "quantity": form_data.get("quantity", quantity),
     }
-    parsed_quantity = _parse_quantity(values["quantity"]) or quantity
-    totals = _checkout_totals(product, parsed_quantity, values["division"], values["coupon_code"])
+    if not is_cart_checkout:
+        parsed_quantity = _parse_quantity(values["quantity"]) or quantity
+        lines[0]["quantity"] = parsed_quantity
+        lines[0]["line_total"] = product["price"] * parsed_quantity
+    totals = _checkout_totals(lines, None, values["division"], values["coupon_code"])
+    stock_available = all(item["quantity"] <= item["stock"] for item in lines)
     return {
         "product": product,
+        "line_items": lines,
+        "is_cart_checkout": is_cart_checkout,
         "stock": stock,
+        "stock_available": stock_available,
+        "item_count": sum(item["quantity"] for item in lines),
         "values": values,
         "totals": totals,
         "errors": errors or {},
@@ -1094,6 +1266,35 @@ def start_checkout():
     return redirect(url_for("checkout_page"))
 
 
+@app.post("/checkout/from-cart")
+def start_cart_checkout():
+    items = _cart_items()
+    if not items:
+        flash("Add a product to your cart before checking out.", "error")
+        return redirect(url_for("cart_page"))
+    cart_items = {item["slug"]: item for item in items}
+    selected_slugs = dict.fromkeys(request.form.getlist("selected_products"))
+    selected_items = [
+        item for slug, item in cart_items.items()
+        if slug in selected_slugs
+    ]
+    if not selected_items:
+        flash("Select at least one product to continue to checkout.", "error")
+        return redirect(url_for("cart_page"))
+    unavailable = [item for item in selected_items if item["quantity"] > item["stock"]]
+    if unavailable:
+        flash("Review the quantities of selected items with limited stock before checking out.", "error")
+        return redirect(url_for("cart_page"))
+    session["checkout_draft"] = {
+        "cart_items": [
+            {"product_slug": item["slug"], "quantity": item["quantity"]}
+            for item in selected_items
+        ],
+        "checkout_key": secrets.token_urlsafe(24),
+    }
+    return redirect(url_for("checkout_page"))
+
+
 @app.get("/checkout")
 def checkout_page():
     draft = session.get("checkout_draft", {})
@@ -1117,22 +1318,26 @@ def checkout_page():
 def apply_checkout_coupon():
     if not session.get("user_id"):
         return jsonify(error="Log in or create a verified account before checkout."), 401
-    product = _checkout_product()
-    if not product:
+    lines = _checkout_lines()
+    if not lines:
         return jsonify(error="Your checkout session expired. Choose the product again."), 400
-    quantity = _parse_quantity(request.form.get("quantity"))
-    if quantity is None:
-        return jsonify(error="Choose a valid product quantity."), 400
-    if quantity > _checkout_stock(product["slug"]):
-        return jsonify(error="That quantity is not currently in stock."), 400
+    draft = session.get("checkout_draft", {})
+    if not isinstance(draft.get("cart_items"), list):
+        quantity = _parse_quantity(request.form.get("quantity"))
+        if quantity is None:
+            return jsonify(error="Choose a valid product quantity."), 400
+        lines[0]["quantity"] = quantity
+        lines[0]["line_total"] = lines[0]["price"] * quantity
+    if any(item["quantity"] > _checkout_stock(item["slug"]) for item in lines):
+        return jsonify(error="One or more items are no longer available in that quantity."), 400
     coupon_code = request.form.get("coupon_code", "").strip().upper()
     coupon = CHECKOUT_COUPONS.get(coupon_code)
     if not coupon:
         return jsonify(error="That coupon code is not valid."), 400
-    subtotal = product["price"] * quantity
+    subtotal = sum(item["line_total"] for item in lines)
     if subtotal < coupon["minimum"]:
         return jsonify(error=f"This coupon requires a subtotal of at least ৳ {coupon['minimum']:,}."), 400
-    totals = _checkout_totals(product, quantity, request.form.get("division", "Dhaka"), coupon_code)
+    totals = _checkout_totals(lines, None, request.form.get("division", "Dhaka"), coupon_code)
     return jsonify(**totals, message=f"Coupon {coupon_code} applied.")
 
 
@@ -1142,8 +1347,8 @@ def place_checkout_order():
         flash("Log in or create a verified account before placing an order.", "error")
         return redirect(url_for("login_page", next=url_for("checkout_page")))
     draft = session.get("checkout_draft")
-    product = _checkout_product()
-    if not draft or not product:
+    lines = _checkout_lines()
+    if not draft or not lines:
         flash("Your checkout session expired. Choose the product again.", "error")
         return redirect(url_for("products_page"))
     if draft.get("order_number") and draft.get("tracking_token"):
@@ -1153,6 +1358,8 @@ def place_checkout_order():
             token=draft["tracking_token"],
         ))
 
+    product = lines[0]
+    is_cart_checkout = isinstance(draft.get("cart_items"), list)
     form_data = request.form
     errors = {}
     name = form_data.get("customer_name", "").strip()
@@ -1165,7 +1372,11 @@ def place_checkout_order():
     delivery_note = form_data.get("delivery_note", "").strip()
     coupon_code = form_data.get("coupon_code", "").strip().upper()
     payment_method = form_data.get("payment_method", "")
-    quantity = _parse_quantity(form_data.get("quantity"))
+    quantity = None if is_cart_checkout else _parse_quantity(form_data.get("quantity"))
+    if quantity is not None and not is_cart_checkout:
+        lines[0]["quantity"] = quantity
+        lines[0]["line_total"] = product["price"] * quantity
+    order_subtotal = sum(item["line_total"] for item in lines)
 
     if len(name) < 2 or len(name) > 100 or not re.search(r"[^\W\d_]", name, re.UNICODE):
         errors["customer_name"] = "Enter your full name (2–100 characters)."
@@ -1186,7 +1397,7 @@ def place_checkout_order():
         errors["postal_code"] = "Enter a 4-digit Bangladesh postal code, or leave it blank."
     if len(delivery_note) > 500:
         errors["delivery_note"] = "Keep your delivery note under 500 characters."
-    if quantity is None:
+    if not is_cart_checkout and quantity is None:
         errors["quantity"] = "Choose a quantity between 1 and 99."
     if payment_method not in ("cod", "card"):
         errors["payment_method"] = "Choose a supported payment method."
@@ -1197,24 +1408,27 @@ def place_checkout_order():
             errors["customer_email"] = "Enter an email address for the payment receipt."
         elif len(email) > 50:
             errors["customer_email"] = "SSLCommerz requires an email address of 50 characters or fewer."
-        elif quantity is not None:
-            payable = _checkout_totals(product, quantity, division, coupon_code)["total"]
+        else:
+            payable = _checkout_totals(lines, None, division, coupon_code)["total"]
             if not 10 <= payable <= 500000:
                 errors["payment_method"] = "SSLCommerz supports online payments from ৳10 to ৳500,000."
     if coupon_code and coupon_code not in CHECKOUT_COUPONS:
         errors["coupon_code"] = "That coupon code is not valid."
-    elif coupon_code and quantity is not None:
-        if product["price"] * quantity < CHECKOUT_COUPONS[coupon_code]["minimum"]:
+    elif coupon_code:
+        if order_subtotal < CHECKOUT_COUPONS[coupon_code]["minimum"]:
             errors["coupon_code"] = "This coupon requires a subtotal of at least ৳ 500."
 
-    stock = _checkout_stock(product["slug"])
-    if quantity is not None and quantity > stock:
-        errors["quantity"] = f"Only {stock} item(s) are currently available."
+    for item in lines:
+        item["stock"] = _checkout_stock(item["slug"])
+        if item["quantity"] > item["stock"]:
+            errors["quantity"] = (
+                f"Only {item['stock']} item(s) of {item['name']} are currently available."
+            )
     if errors:
         context = _checkout_context(form_data, errors)
         return render_template("checkout.html", **context), 400
 
-    totals = _checkout_totals(product, quantity, division, coupon_code)
+    totals = _checkout_totals(lines, None, division, coupon_code)
     checkout_key = draft.get("checkout_key")
     if not checkout_key:
         flash("Your checkout session expired. Choose the product again.", "error")
@@ -1226,6 +1440,7 @@ def place_checkout_order():
     tracking_token = secrets.token_urlsafe(32)
     account_id = session.get("user_id")
     now = int(time.time())
+    inventory_conflict = False
     with database() as connection:
         existing = connection.execute(
             "SELECT order_number FROM orders WHERE checkout_key = ?", (checkout_key,)
@@ -1239,39 +1454,48 @@ def place_checkout_order():
                 ))
             flash("This checkout was already submitted.", "error")
             return redirect(url_for("products_page"))
-        reserved = connection.execute(
-            "UPDATE product_inventory SET stock = stock - ? "
-            "WHERE product_slug = ? AND stock >= ?",
-            (quantity, product["slug"], quantity),
-        )
-        if reserved.rowcount != 1:
-            context = _checkout_context(
-                form_data,
-                {"quantity": "Stock changed while you were checking out. Review the available quantity."},
+        for item in lines:
+            reserved = connection.execute(
+                "UPDATE product_inventory SET stock = stock - ? "
+                "WHERE product_slug = ? AND stock >= ?",
+                (item["quantity"], item["slug"], item["quantity"]),
             )
-            return render_template("checkout.html", **context), 409
-        connection.execute(
-            """INSERT INTO orders (
-                order_number, checkout_key, tracking_token_hash, account_id,
-                customer_name, customer_email, customer_phone, division, district,
-                address, postal_code, delivery_note, subtotal, delivery_fee, discount,
-                total, coupon_code, payment_method, order_status, payment_status, stock_reserved, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                order_number, checkout_key, hashlib.sha256(tracking_token.encode()).hexdigest(),
-                account_id, name, email or None, phone, division, district, address,
-                postal_code or None, delivery_note or None, totals["subtotal"],
-                totals["delivery_fee"], totals["discount"], totals["total"],
-                coupon_code or None, payment_method, order_status, payment_status, 1, now,
-            ),
+            if reserved.rowcount != 1:
+                connection.rollback()
+                inventory_conflict = True
+                break
+        if not inventory_conflict:
+            connection.execute(
+                """INSERT INTO orders (
+                    order_number, checkout_key, tracking_token_hash, account_id,
+                    customer_name, customer_email, customer_phone, division, district,
+                    address, postal_code, delivery_note, subtotal, delivery_fee, discount,
+                    total, coupon_code, payment_method, order_status, payment_status, stock_reserved, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    order_number, checkout_key, hashlib.sha256(tracking_token.encode()).hexdigest(),
+                    account_id, name, email or None, phone, division, district, address,
+                    postal_code or None, delivery_note or None, totals["subtotal"],
+                    totals["delivery_fee"], totals["discount"], totals["total"],
+                    coupon_code or None, payment_method, order_status, payment_status, 1, now,
+                ),
+            )
+            order_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+            connection.executemany(
+                """INSERT INTO order_items
+                (order_id, product_slug, product_name, quantity, unit_price, variant_id)
+                VALUES (?, ?, ?, ?, ?, NULL)""",
+                [
+                    (order_id, item["slug"], item["name"], item["quantity"], item["price"])
+                    for item in lines
+                ],
+            )
+    if inventory_conflict:
+        context = _checkout_context(
+            form_data,
+            {"quantity": "Stock changed while you were checking out. Review the available quantities."},
         )
-        order_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
-        connection.execute(
-            """INSERT INTO order_items
-            (order_id, product_slug, product_name, quantity, unit_price, variant_id)
-            VALUES (?, ?, ?, ?, ?, NULL)""",
-            (order_id, product["slug"], product["name"], quantity, product["price"]),
-        )
+        return render_template("checkout.html", **context), 409
 
     if payment_method != "cod":
         order = {
@@ -1280,14 +1504,16 @@ def place_checkout_order():
             "customer_name": name,
             "customer_email": email,
             "customer_phone": phone,
-            "quantity": quantity,
+            "quantity": sum(item["quantity"] for item in lines),
             "address": address,
             "district": district,
             "division": division,
             "postal_code": postal_code,
         }
         try:
-            gateway_url = initiate_sslcommerz_payment(order, product["name"])
+            gateway_url = initiate_sslcommerz_payment(
+                order, ", ".join(item["name"] for item in lines)
+            )
         except (URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
             logging.warning("SSLCommerz payment session could not be created.")
             with database() as connection:
@@ -1306,11 +1532,15 @@ def place_checkout_order():
         draft["order_number"] = order_number
         draft["tracking_token"] = tracking_token
         session["checkout_draft"] = draft
+        if is_cart_checkout:
+            _remove_checked_out_cart_items(lines)
         return redirect(gateway_url)
 
     draft["order_number"] = order_number
     draft["tracking_token"] = tracking_token
     session["checkout_draft"] = draft
+    if is_cart_checkout:
+        _remove_checked_out_cart_items(lines)
     return redirect(url_for("order_confirmation", order_number=order_number, token=tracking_token))
 
 

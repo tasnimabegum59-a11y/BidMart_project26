@@ -55,6 +55,10 @@
         </nav>
 
         <div class="nav-buttons">
+            <a href="{{ url_for('cart_page') }}" class="cart-nav-link"{% if active_page == "cart" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">🛒</span> Cart
+                <span class="cart-nav-count" aria-label="{{ cart_count }} items">{{ cart_count }}</span>
+            </a>
             {% if not current_user_email %}
             <a href="{{ url_for('login_page') }}" class="login-btn">Login</a>
             <a href="{{ url_for('registration_page') }}" class="register-btn">Register</a>

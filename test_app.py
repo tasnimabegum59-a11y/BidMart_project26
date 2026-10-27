@@ -267,7 +267,8 @@ class AuthenticationFlowTests(unittest.TestCase):
             len(bidmart.PRODUCT_CATALOG),
         )
         self.assertEqual(response.data.count(b'data-buy-now'), len(bidmart.PRODUCT_CATALOG))
-        self.assertEqual(response.data.count(b'name="product_slug"'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'name="product_slug"'), 2 * len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b"product-cart-btn"), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
@@ -364,7 +365,147 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"Sample rating overview", response.data)
                 self.assertIn(b"Related Products", response.data)
                 self.assertIn(b"10 in stock", response.data)
+                self.assertIn(b"Add to Cart", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
+
+    def test_cart_add_update_remove_and_multi_item_checkout(self):
+        products = self.client.get("/products")
+        csrf = self.csrf_from(products)
+        first_add = self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "2",
+        })
+        self.assertEqual(first_add.headers["Location"], "/cart")
+        second_add = self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "compact-digital-camera",
+            "quantity": "1",
+        })
+        self.assertEqual(second_add.headers["Location"], "/cart")
+
+        cart = self.client.get("/cart")
+        self.assertEqual(cart.status_code, 200)
+        self.assertIn(b"Shopping cart", cart.data)
+        self.assertIn(b"Casual Sneakers", cart.data)
+        self.assertIn(b"Compact Digital Camera", cart.data)
+        self.assertIn(b"3 items", cart.data)
+        self.assertIn(b"Checkout selected items", cart.data)
+        self.assertIn(b'aria-label="3 items">3</span>', cart.data)
+
+        self.login_as_checkout_buyer()
+        checkout_start = self.client.post("/checkout/from-cart", data={
+            "csrf_token": csrf,
+            "selected_products": ["casual-sneakers", "compact-digital-camera"],
+        })
+        self.assertEqual(checkout_start.headers["Location"], "/checkout")
+        checkout = self.client.get("/checkout")
+        self.assertEqual(checkout.status_code, 200)
+        self.assertIn(b"Casual Sneakers", checkout.data)
+        self.assertIn(b"Compact Digital Camera", checkout.data)
+        self.assertIn(b"Edit cart or quantities", checkout.data)
+
+        order_response = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), coupon_code="SAVE50"),
+        )
+        self.assertEqual(order_response.status_code, 302)
+        confirmation = self.client.get(order_response.headers["Location"])
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertIn(b"Casual Sneakers", confirmation.data)
+        self.assertIn(b"Compact Digital Camera", confirmation.data)
+        self.assertIn("৳ 22,510".encode(), confirmation.data)
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT subtotal, delivery_fee, discount, total FROM orders"
+            ).fetchone()
+            items = connection.execute(
+                "SELECT product_slug, quantity FROM order_items ORDER BY product_slug"
+            ).fetchall()
+            stocks = {
+                row["product_slug"]: row["stock"]
+                for row in connection.execute(
+                    "SELECT product_slug, stock FROM product_inventory "
+                    "WHERE product_slug IN ('casual-sneakers', 'compact-digital-camera')"
+                )
+            }
+        self.assertEqual(
+            (order["subtotal"], order["delivery_fee"], order["discount"], order["total"]),
+            (22500, 60, 50, 22510),
+        )
+        self.assertEqual(
+            [(item["product_slug"], item["quantity"]) for item in items],
+            [("casual-sneakers", 2), ("compact-digital-camera", 1)],
+        )
+        self.assertEqual(stocks, {"casual-sneakers": 8, "compact-digital-camera": 9})
+        self.assertIn(b"Your cart is waiting", self.client.get("/cart").data)
+
+    def test_cart_checkout_includes_only_selected_products_and_keeps_others(self):
+        products = self.client.get("/products")
+        csrf = self.csrf_from(products)
+        for slug in ("casual-sneakers", "compact-digital-camera"):
+            self.client.post("/cart/add", data={
+                "csrf_token": csrf,
+                "product_slug": slug,
+                "quantity": "1",
+            })
+
+        cart = self.client.get("/cart")
+        self.login_as_checkout_buyer()
+        checkout_start = self.client.post("/checkout/from-cart", data={
+            "csrf_token": self.csrf_from(cart),
+            "selected_products": "compact-digital-camera",
+        })
+        self.assertEqual(checkout_start.headers["Location"], "/checkout")
+        checkout = self.client.get("/checkout")
+        self.assertIn(b"Compact Digital Camera", checkout.data)
+        self.assertNotIn(b"Casual Sneakers", checkout.data)
+        self.assertIn(b"Selected subtotal", self.client.get("/cart").data)
+
+        order_response = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout)),
+        )
+        self.assertEqual(order_response.status_code, 302)
+        confirmation = self.client.get(order_response.headers["Location"])
+        self.assertIn(b"Compact Digital Camera", confirmation.data)
+        self.assertNotIn(b"Casual Sneakers", confirmation.data)
+        with bidmart.database() as connection:
+            ordered_slugs = [
+                row["product_slug"]
+                for row in connection.execute("SELECT product_slug FROM order_items")
+            ]
+        self.assertEqual(ordered_slugs, ["compact-digital-camera"])
+
+        remaining_cart = self.client.get("/cart")
+        self.assertIn(b"Casual Sneakers", remaining_cart.data)
+        self.assertNotIn(b"Compact Digital Camera", remaining_cart.data)
+        self.assertIn(b'aria-label="1 items">1</span>', remaining_cart.data)
+
+    def test_cart_rejects_quantities_above_stock_and_supports_removal(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE product_inventory SET stock = 1 WHERE product_slug = 'casual-sneakers'"
+            )
+        products = self.client.get("/products")
+        csrf = self.csrf_from(products)
+        self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "1",
+        })
+        update = self.client.post("/cart/casual-sneakers/update", data={
+            "csrf_token": csrf,
+            "quantity": "2",
+        })
+        self.assertEqual(update.status_code, 302)
+        cart = self.client.get("/cart")
+        self.assertIn(b"Only 1 item(s) are currently available", cart.data)
+        self.assertIn(b'value="1"', cart.data)
+        self.assertIn(b"Review item availability", cart.data)
+        removed = self.client.post("/cart/casual-sneakers/remove", data={"csrf_token": csrf})
+        self.assertEqual(removed.status_code, 302)
+        self.assertIn(b"Your cart is waiting", self.client.get("/cart").data)
 
     def test_checkout_requires_login_and_registered_buyer_can_confirm_order(self):
         start = self.start_checkout(quantity="2", as_guest=True)

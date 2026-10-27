@@ -93,7 +93,7 @@
                         {% endif %}
                     </div>
 
-                    <form method="post" action="{{ url_for('start_checkout') }}">
+                    <form method="post" action="{{ url_for('start_checkout') }}" class="product-detail-actions">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="product_slug" value="{{ product.slug }}">
                         <div class="product-detail-quantity">
@@ -102,6 +102,9 @@
                         </div>
                         <button class="product-detail-buy" id="productBuyNow" type="submit" {% if stock < 1 %}disabled{% endif %}>
                             {% if stock > 0 %}{% if current_user_email %}Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
+                        </button>
+                        <button class="product-detail-add-cart" type="submit" formaction="{{ url_for('add_to_cart') }}" {% if stock < 1 %}disabled{% endif %}>
+                            ＋ Add to Cart
                         </button>
                     </form>
 

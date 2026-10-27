@@ -64,6 +64,14 @@
                                         {% if product.stock %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
                                     </button>
                                 </form>
+                                <form method="post" action="{{ url_for('add_to_cart') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <input type="hidden" name="product_slug" value="{{ product.slug }}">
+                                    <input type="hidden" name="quantity" value="1">
+                                    <button class="product-btn product-cart-btn" type="submit" {% if product.stock < 1 %}disabled{% endif %}>
+                                        {% if product.stock %}＋ Add to Cart{% else %}Unavailable{% endif %}
+                                    </button>
+                                </form>
                                 {% if current_user_role in ("admin", "superadmin") %}
                                 <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
                                 {% endif %}

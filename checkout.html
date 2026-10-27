@@ -128,13 +128,33 @@
                     <div class="checkout-submit-area">
                         {% if errors.quantity %}<p class="checkout-field-error" role="alert">{{ errors.quantity }}</p>{% endif %}
                         {% if errors.coupon_code %}<p class="checkout-field-error" role="alert">{{ errors.coupon_code }}</p>{% endif %}
-                        <button class="checkout-submit" id="checkoutSubmit" type="submit" {% if stock < 1 %}disabled{% endif %}>Place COD order</button>
-                        {% if stock < 1 %}<p class="checkout-field-error" role="alert">This product is out of stock. Please choose another product.</p>{% endif %}
+                        <button class="checkout-submit" id="checkoutSubmit" type="submit" {% if not stock_available %}disabled{% endif %}>Place COD order</button>
+                        {% if not stock_available %}<p class="checkout-field-error" role="alert">One or more items no longer have enough stock. Review your cart before continuing.</p>{% endif %}
                     </div>
                 </form>
 
                 <aside class="checkout-summary" aria-labelledby="summaryHeading">
                     <h2 id="summaryHeading">Order summary</h2>
+                    {% if is_cart_checkout %}
+                    <div class="checkout-cart-lines">
+                        {% for item in line_items %}
+                        <div class="checkout-product">
+                            <div class="checkout-product-image">
+                                {% if item.image %}
+                                <img src="{{ url_for('static', filename=item.image) }}" alt="">
+                                {% else %}
+                                <span aria-hidden="true">{{ item.icon }}</span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <strong>{{ item.name }}</strong>
+                                <span>Standard variant · Qty {{ item.quantity }}</span>
+                                <b>৳ {{ "{:,}".format(item.price) }} each</b>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
                     <div class="checkout-product">
                         <div class="checkout-product-image">
                             {% if product.image %}
@@ -154,6 +174,7 @@
                         <input id="checkoutQuantity" name="quantity" form="checkoutOrderForm" type="number" min="1" max="{{ stock if stock > 0 else 1 }}" value="{{ values.quantity }}" required aria-invalid="{{ 'true' if errors.quantity else 'false' }}">
                     </div>
                     {% if errors.quantity %}<small class="checkout-field-error">{{ errors.quantity }}</small>{% endif %}
+                    {% endif %}
                     <div class="checkout-summary-lines">
                         <div><span>Product subtotal</span><strong id="summarySubtotal">৳ {{ "{:,}".format(totals.subtotal) }}</strong></div>
                         <div><span>Delivery charge</span><strong id="summaryDelivery">৳ {{ "{:,}".format(totals.delivery_fee) }}</strong></div>
@@ -169,9 +190,13 @@
                         <div class="checkout-total"><span>Total payable</span><strong id="summaryTotal">৳ {{ "{:,}".format(totals.total) }}</strong></div>
                     </div>
                     <p class="checkout-stock-note">
-                        {% if stock > 0 %}{{ stock }} item(s) currently available.{% else %}Currently out of stock.{% endif %}
+                        {% if stock_available %}All {{ item_count }} item(s) are currently available.{% else %}Some item quantities exceed current stock.{% endif %}
                     </p>
+                    {% if is_cart_checkout %}
+                    <a class="checkout-edit-link" href="{{ url_for('cart_page') }}">Edit cart or quantities</a>
+                    {% else %}
                     <a class="checkout-edit-link" href="{{ url_for('product_details_page', slug=product.slug) }}">Edit product or quantity</a>
+                    {% endif %}
                     <p class="checkout-demo-note">Delivery fees: Dhaka ৳60; other listed divisions ৳120. Coupon SAVE50 saves ৳50 on orders of ৳500 or more. All totals are recalculated on the server.</p>
                 </aside>
             </div>
@@ -191,16 +216,22 @@
         const divisionSelect = document.getElementById("division");
         let appliedDiscount = {{ totals.discount }};
         const checkoutQuantity = document.getElementById("checkoutQuantity");
+        const fixedSubtotal = {{ totals.subtotal }};
+        const unitPrice = {{ product.price }};
 
         function updateCheckoutTotal() {
-            const quantity = Number(checkoutQuantity.value);
-            const subtotal = {{ product.price }} * (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+            const quantity = checkoutQuantity ? Number(checkoutQuantity.value) : null;
+            const subtotal = checkoutQuantity
+                ? unitPrice * (Number.isFinite(quantity) && quantity > 0 ? quantity : 0)
+                : fixedSubtotal;
             const selectedDivision = divisionSelect.options[divisionSelect.selectedIndex];
             const delivery = Number(selectedDivision ? selectedDivision.dataset.fee : 0);
-            document.getElementById("summaryQuantity").textContent = String(quantity);
             document.getElementById("summarySubtotal").textContent = "৳ " + subtotal.toLocaleString("en-US");
             document.getElementById("summaryDelivery").textContent = "৳ " + delivery.toLocaleString("en-US");
             document.getElementById("summaryTotal").textContent = "৳ " + Math.max(0, subtotal + delivery - appliedDiscount).toLocaleString("en-US");
+            if (checkoutQuantity) {
+                document.getElementById("summaryQuantity").textContent = String(quantity);
+            }
         }
 
         couponButton.addEventListener("click", async function() {
@@ -210,7 +241,9 @@
             const data = new URLSearchParams(new FormData(document.getElementById("checkoutCouponForm")));
             data.set("coupon_code", couponInput.value);
             data.set("division", divisionSelect.value);
-            data.set("quantity", checkoutQuantity.value);
+            if (checkoutQuantity) {
+                data.set("quantity", checkoutQuantity.value);
+            }
             try {
                 const response = await fetch(document.getElementById("checkoutCouponForm").action, {
                     method: "POST",
@@ -242,7 +275,9 @@
         });
 
         divisionSelect.addEventListener("change", updateCheckoutTotal);
-        checkoutQuantity.addEventListener("input", updateCheckoutTotal);
+        if (checkoutQuantity) {
+            checkoutQuantity.addEventListener("input", updateCheckoutTotal);
+        }
         checkoutForm.querySelectorAll('input[name="payment_method"]').forEach(function(method) {
             method.addEventListener("change", function() {
                 checkoutSubmit.textContent = method.value === "cod"

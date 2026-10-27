@@ -178,6 +178,12 @@
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('iphone-14-pro-max-256gb', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('iphone-14-pro-max-256gb', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
                             </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="iphone-14-pro-max-256gb">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('iphone-14-pro-max-256gb', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -210,6 +216,12 @@
                                 <input type="hidden" name="product_slug" value="smart-watch-bluetooth-calling">
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('smart-watch-bluetooth-calling', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('smart-watch-bluetooth-calling', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
+                            </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="smart-watch-bluetooth-calling">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('smart-watch-bluetooth-calling', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
                             </form>
                         </div>
                     </div>
@@ -244,6 +256,12 @@
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('jbl-wireless-headphones', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('jbl-wireless-headphones', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
                             </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="jbl-wireless-headphones">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('jbl-wireless-headphones', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -276,6 +294,12 @@
                                 <input type="hidden" name="product_slug" value="casual-sneakers">
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('casual-sneakers', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('casual-sneakers', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
+                            </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="casual-sneakers">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('casual-sneakers', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
                             </form>
                         </div>
                     </div>
@@ -310,6 +334,12 @@
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('wireless-earbuds', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('wireless-earbuds', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
                             </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="wireless-earbuds">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('wireless-earbuds', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
+                            </form>
                         </div>
                     </div>
                 </article>
@@ -342,6 +372,12 @@
                                 <input type="hidden" name="product_slug" value="compact-digital-camera">
                                 <input type="hidden" name="quantity" value="1">
                                 <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product_inventory.get('compact-digital-camera', 0) < 1 %}disabled{% endif %}>{% if product_inventory.get('compact-digital-camera', 0) > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
+                            </form>
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="compact-digital-camera">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-cart-btn" type="submit" {% if product_inventory.get('compact-digital-camera', 0) < 1 %}disabled{% endif %}>＋ Add to Cart</button>
                             </form>
                         </div>
                     </div>
