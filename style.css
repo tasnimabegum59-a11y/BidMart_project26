@@ -51,11 +51,17 @@ a { /* সব link নির্বাচন করে */
 }
 
 .navbar { /* logo, menu এবং button-এর container */
+    width: 96%;
+    max-width: none;
     min-height: 78px; /* header-এর ন্যূনতম উচ্চতা নির্ধারণ করে */
     display: flex; /* child element-গুলো পাশাপাশি রাখে */
     justify-content: flex-start; /* logo, profile, navigation এই ক্রমে রাখে */
     align-items: center; /* element-গুলো vertically মাঝখানে রাখে */
     gap: 16px; /* header item-গুলোর মধ্যে সংক্ষিপ্ত দূরত্ব রাখে */
+}
+
+.navbar > .logo {
+    margin-right: clamp(8px, 1.5vw, 20px);
 }
 
 .logo { /* BidMart logo-এর design */
@@ -3906,6 +3912,7 @@ a { /* সব link নির্বাচন করে */
 @media (max-width: 600px) { /* স্ক্রিনের প্রস্থ 600px বা কম হলে এই নিয়ম চলে */
 
     .navbar { /* Mobile navigation */
+        width: calc(100% - 32px);
         flex-direction: column; /* logo, menu ও button উপর-নিচে রাখে */
         gap: 15px; /* element-গুলোর মধ্যে দূরত্ব রাখে */
     }
