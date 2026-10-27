@@ -162,7 +162,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="promo-bid-prices"', home.data)
         self.assertIn(b'Up to', home.data)
         self.assertIn(b'40% OFF', home.data)
-        self.assertIn(b'href="#products">Shop Now', home.data)
+        self.assertIn(b'href="/offers">Shop Offers', home.data)
         self.assertEqual(home.data.count(b'class="promo-deal-product"'), 3)
         self.assertNotIn(b'src="/static/live-auction-card.png"', home.data)
         self.assertNotIn(b'src="/static/summer-savings-card.png"', home.data)
@@ -597,6 +597,11 @@ class AuthenticationFlowTests(unittest.TestCase):
         auction_catalog = self.client.get("/auctions")
         self.assertIn(b"Manage auctions", auction_catalog.data)
         self.assertIn(b"Close auction", auction_catalog.data)
+        offers_page = self.client.get("/offers")
+        self.assertEqual(offers_page.status_code, 200)
+        self.assertIn(b"Special Offers", offers_page.data)
+        self.assertIn(b"JBL Headphones", offers_page.data)
+        self.assertIn(b'href="/offers"', self.client.get("/").data)
         csrf = self.csrf_from(dashboard)
         product_values = {
             "csrf_token": csrf,
@@ -625,6 +630,40 @@ class AuthenticationFlowTests(unittest.TestCase):
             ).fetchone()["stock"]
         self.assertEqual(stock, 4)
 
+        offer_end = time.strftime("%Y-%m-%dT%H:%M", time.gmtime(time.time() + 86400))
+        created_offer = self.client.post("/admin/offers/create", data={
+            "csrf_token": csrf,
+            "product_slug": "test-desk-light",
+            "title": "Desk light launch deal",
+            "description": "A limited-time test offer.",
+            "ends_at": offer_end,
+            "is_active": "1",
+        })
+        self.assertEqual(created_offer.status_code, 302)
+        self.assertIn(b"Desk light launch deal", self.client.get("/offers").data)
+        with bidmart.database() as connection:
+            offer_id = connection.execute(
+                "SELECT id FROM offers WHERE product_slug = 'test-desk-light'"
+            ).fetchone()["id"]
+        updated_offer = self.client.post(
+            f"/admin/offers/{offer_id}/update",
+            data={
+                "csrf_token": csrf,
+                "product_slug": "test-desk-light",
+                "title": "Updated desk light deal",
+                "description": "Updated offer description.",
+                "ends_at": offer_end,
+                "is_active": "0",
+            },
+        )
+        self.assertEqual(updated_offer.status_code, 302)
+        self.assertNotIn(b"Updated desk light deal", self.client.get("/offers").data)
+        deleted_offer = self.client.post(
+            f"/admin/offers/{offer_id}/delete", data={"csrf_token": csrf}
+        )
+        self.assertEqual(deleted_offer.status_code, 302)
+        self.assertIsNotNone(bidmart.get_product("test-desk-light"))
+
         created_auction = self.client.post("/admin/auctions/create", data={
             "csrf_token": csrf,
             "product_slug": "test-desk-light",
@@ -639,6 +678,30 @@ class AuthenticationFlowTests(unittest.TestCase):
         )
         self.assertEqual(closed_auction.status_code, 302)
         self.assertEqual(self.client.get("/auction/test-desk-light").status_code, 404)
+        reopened_auction = self.client.post(
+            "/admin/auctions/test-desk-light/reopen",
+            data={"csrf_token": csrf, "duration_days": "2"},
+        )
+        self.assertEqual(reopened_auction.status_code, 302)
+        self.assertEqual(self.client.get("/auction/test-desk-light").status_code, 200)
+        with bidmart.database() as connection:
+            auction_id = connection.execute(
+                "SELECT id FROM auctions WHERE slug = 'test-desk-light'"
+            ).fetchone()["id"]
+        updated_auction = self.client.post(
+            "/admin/auctions/test-desk-light/update",
+            data={"csrf_token": csrf, "minimum_increment": "250", "duration_days": "5"},
+        )
+        self.assertEqual(updated_auction.status_code, 302)
+        with bidmart.database() as connection:
+            auction = connection.execute(
+                "SELECT minimum_increment, ends_at FROM auctions WHERE id = ?", (auction_id,)
+            ).fetchone()
+        self.assertEqual(auction["minimum_increment"], 250)
+        self.assertGreater(auction["ends_at"], int(time.time()) + 4 * 86400)
+        self.client.post(
+            "/admin/auctions/test-desk-light/close", data={"csrf_token": csrf}
+        )
 
         archived = self.client.post(
             "/admin/products/test-desk-light/archive", data={"csrf_token": csrf}

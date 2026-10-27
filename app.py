@@ -393,9 +393,22 @@ def initialize_database():
             connection.execute(
                 "ALTER TABLE catalog_products ADD COLUMN show_in_catalog INTEGER NOT NULL DEFAULT 1"
             )
+        offers_table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'offers'"
+        ).fetchone() is not None
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS offers (
+            id INTEGER PRIMARY KEY,
+            product_slug TEXT NOT NULL UNIQUE REFERENCES catalog_products(slug),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            ends_at INTEGER NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1
+            )"""
+        )
         connection.execute(
             """CREATE TABLE IF NOT EXISTS auction_bids (
-                id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
                 auction_id INTEGER NOT NULL REFERENCES auctions(id),
                 account_id INTEGER NOT NULL REFERENCES accounts(id),
                 amount INTEGER NOT NULL CHECK (amount > 0),
@@ -504,6 +517,21 @@ def initialize_database():
                 "WHERE slug = ? AND starting_bid = 0",
                 (listing["starting_bid"], listing["minimum_increment"], listing["slug"]),
             )
+        if not offers_table_exists:
+            for slug, title, description in (
+                ("jbl-wireless-headphones", "JBL Headphones · 40% OFF", "Wireless over-ear sound with a special launch price."),
+                ("smart-watch-bluetooth-calling", "Smart Watch · 25% OFF", "Stay connected and track your everyday activity."),
+                ("wireless-earbuds", "Wireless Earbuds · 26% OFF", "Compact earbuds with touch controls and a charging case."),
+            ):
+                connection.execute(
+                    """INSERT OR IGNORE INTO offers
+                    (product_slug, title, description, ends_at, is_active)
+                    SELECT ?, ?, ?, ?, 1 WHERE EXISTS (
+                        SELECT 1 FROM catalog_products
+                        WHERE slug = ? AND is_active = 1 AND show_in_catalog = 1
+                    )""",
+                    (slug, title, description, now + 30 * 86400, slug),
+                )
 
 
 initialize_database()
@@ -683,10 +711,16 @@ def home():
             for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
         }
     auction, _ = get_auction(DEMO_AUCTION_SLUG)
+    featured_offers = get_offer_listings()[:3]
+    max_offer_discount = max(
+        (offer["discount_percent"] for offer in featured_offers), default=0
+    )
     return render_template(
         "index.html",
         active_page="home",
         featured_auction=auction,
+        featured_offers=featured_offers,
+        max_offer_discount=max_offer_discount,
         product_inventory=product_inventory,
         now=int(time.time()),
     )
@@ -1331,6 +1365,23 @@ def auctions_page():
     )
 
 
+@app.get("/offers")
+def offers_page():
+    offers = get_offer_listings()
+    with database() as connection:
+        inventory = {
+            row["product_slug"]: row["stock"]
+            for row in connection.execute("SELECT product_slug, stock FROM product_inventory")
+        }
+    return render_template(
+        "offers.html",
+        offers=[{**offer, "stock": inventory.get(offer["product_slug"], 0)} for offer in offers],
+        current_user_email=session.get("user_email"),
+        current_user_name=session.get("user_name"),
+        active_page="offers",
+    )
+
+
 def get_auction(slug):
     with database() as connection:
         auction = connection.execute(
@@ -1574,6 +1625,35 @@ def get_auction_listings(include_inactive=False):
     return [dict(row) for row in rows]
 
 
+def get_offer_listings(include_inactive=False):
+    query = (
+        "SELECT o.id, o.product_slug, o.title, o.description, o.ends_at, o.is_active, "
+        "p.name, p.category, p.description AS product_description, p.image, p.icon, "
+        "p.price, p.old_price "
+        "FROM offers AS o JOIN catalog_products AS p ON p.slug = o.product_slug"
+    )
+    parameters = ()
+    if not include_inactive:
+        query += " WHERE o.is_active = 1 AND o.ends_at > ? AND p.is_active = 1 AND p.show_in_catalog = 1"
+        parameters = (int(time.time()),)
+    query += " ORDER BY o.ends_at, p.name COLLATE NOCASE"
+    with database() as connection:
+        rows = connection.execute(query, parameters).fetchall()
+    offers = []
+    for row in rows:
+        offer = dict(row)
+        old_price = offer["old_price"]
+        offer["discount_percent"] = (
+            round((old_price - offer["price"]) / old_price * 100)
+            if old_price and old_price > offer["price"] else 0
+        )
+        offer["ends_at_input"] = datetime.fromtimestamp(
+            offer["ends_at"], timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M")
+        offers.append(offer)
+    return offers
+
+
 @app.get("/superadmin/admin-requests")
 def admin_role_requests_page():
     require_superadmin()
@@ -1621,6 +1701,12 @@ def admin_dashboard():
             "LEFT JOIN auctions AS a ON a.slug = p.slug "
             "WHERE p.is_active = 1 AND a.slug IS NULL ORDER BY p.name COLLATE NOCASE"
         ).fetchall()
+        available_offer_products = connection.execute(
+            "SELECT p.slug, p.name FROM catalog_products AS p "
+            "LEFT JOIN offers AS o ON o.product_slug = p.slug "
+            "WHERE p.is_active = 1 AND p.show_in_catalog = 1 AND o.id IS NULL "
+            "ORDER BY p.name COLLATE NOCASE"
+        ).fetchall()
         role_row = connection.execute(
             "SELECT role FROM accounts WHERE id = ?", (staff_id,)
         ).fetchone()
@@ -1643,6 +1729,8 @@ def admin_dashboard():
         stats=stats,
         auctions=get_auction_listings(include_inactive=True),
         auction_products=auction_products,
+        offers=get_offer_listings(include_inactive=True),
+        available_offer_products=available_offer_products,
         accounts=accounts,
         is_superadmin=bool(accounts) or role_row["role"] == "superadmin",
         current_user_email=session.get("user_email"),
@@ -1817,6 +1905,139 @@ def admin_close_auction(slug):
     else:
         flash("Auction closed; its bid history has been preserved.", "success")
     return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+@app.post("/admin/auctions/<slug>/update")
+def admin_update_auction(slug):
+    require_staff()
+    try:
+        increment = int(request.form.get("minimum_increment", ""))
+        duration = int(request.form.get("duration_days", ""))
+    except ValueError:
+        flash("Bid increment and duration must be whole numbers.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    if increment < 1 or not 1 <= duration <= 90:
+        flash("Enter a positive bid increment and an auction duration from 1 to 90 days.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE auctions SET minimum_increment = ?, ends_at = ? WHERE slug = ? AND is_active = 1",
+            (increment, int(time.time()) + duration * 86400, slug),
+        )
+    if not result.rowcount:
+        abort(404)
+    flash("Auction details updated.", "success")
+    return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+@app.post("/admin/auctions/<slug>/reopen")
+def admin_reopen_auction(slug):
+    require_staff()
+    try:
+        duration = int(request.form.get("duration_days", ""))
+    except ValueError:
+        flash("Auction duration must be a whole number.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    if not 1 <= duration <= 90:
+        flash("Enter an auction duration from 1 to 90 days.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    with database() as connection:
+        result = connection.execute(
+            "UPDATE auctions SET is_active = 1, ends_at = ? WHERE slug = ? AND is_active = 0",
+            (int(time.time()) + duration * 86400, slug),
+        )
+    if not result.rowcount:
+        flash("That auction is already active or was not found.", "error")
+    else:
+        flash("Auction reopened with its bid history preserved.", "success")
+    return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+def _admin_offer_values(form):
+    product_slug = form.get("product_slug", "").strip()
+    title = form.get("title", "").strip()
+    description = form.get("description", "").strip()
+    try:
+        ends_at = int(datetime.strptime(
+            form.get("ends_at", "").strip(), "%Y-%m-%dT%H:%M"
+        ).replace(tzinfo=timezone.utc).timestamp())
+    except (TypeError, ValueError):
+        return None, "Choose a valid offer end date and time (UTC)."
+    now = int(time.time())
+    if not get_product(product_slug):
+        return None, "Choose an active catalog product for this offer."
+    if not title or len(title) > 120:
+        return None, "Enter an offer title of up to 120 characters."
+    if not description or len(description) > 500:
+        return None, "Enter an offer description of up to 500 characters."
+    if not now < ends_at <= now + 365 * 86400:
+        return None, "Offer end time must be in the next 365 days."
+    if form.get("is_active", "1") not in ("0", "1"):
+        return None, "Choose whether this offer is active or paused."
+    return {
+        "product_slug": product_slug,
+        "title": title,
+        "description": description,
+        "ends_at": ends_at,
+        "is_active": int(form.get("is_active", "1")),
+    }, None
+
+
+@app.post("/admin/offers/create")
+def admin_create_offer():
+    require_staff()
+    values, error = _admin_offer_values(request.form)
+    if error:
+        flash(error, "error")
+        return redirect(url_for("admin_dashboard") + "#offers")
+    try:
+        with database() as connection:
+            connection.execute(
+                "INSERT INTO offers (product_slug, title, description, ends_at, is_active) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (values["product_slug"], values["title"], values["description"],
+                 values["ends_at"], values["is_active"]),
+            )
+    except sqlite3.IntegrityError:
+        flash("That product already has an offer listing.", "error")
+        return redirect(url_for("admin_dashboard") + "#offers")
+    flash("Offer published.", "success")
+    return redirect(url_for("admin_dashboard") + "#offers")
+
+
+@app.post("/admin/offers/<int:offer_id>/update")
+def admin_update_offer(offer_id):
+    require_staff()
+    values, error = _admin_offer_values(request.form)
+    if error:
+        flash(error, "error")
+        return redirect(url_for("admin_dashboard") + "#offers")
+    try:
+        with database() as connection:
+            result = connection.execute(
+                "UPDATE offers SET product_slug = ?, title = ?, description = ?, ends_at = ?, "
+                "is_active = ? WHERE id = ?",
+                (values["product_slug"], values["title"], values["description"],
+                 values["ends_at"], values["is_active"], offer_id),
+            )
+    except sqlite3.IntegrityError:
+        flash("That product already has another offer listing.", "error")
+        return redirect(url_for("admin_dashboard") + "#offers")
+    if not result.rowcount:
+        abort(404)
+    flash("Offer updated.", "success")
+    return redirect(url_for("admin_dashboard") + "#offers")
+
+
+@app.post("/admin/offers/<int:offer_id>/delete")
+def admin_delete_offer(offer_id):
+    require_staff()
+    with database() as connection:
+        result = connection.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
+    if not result.rowcount:
+        abort(404)
+    flash("Offer removed; the catalog product and its order history were preserved.", "success")
+    return redirect(url_for("admin_dashboard") + "#offers")
 
 
 @app.post("/admin/orders/<int:order_id>/status")

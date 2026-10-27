@@ -78,27 +78,25 @@
                 <div class="promo-discount-copy">
                     <span class="promo-discount-badge">SPECIAL DISCOUNT</span>
                     <p class="promo-discount-intro">Seasonal deals are here</p>
-                    <h2>Up to <strong>40% OFF</strong></h2>
-                    <p class="promo-discount-description">Save on selected audio and wearable products.</p>
-                    <a class="promo-shop-button" href="#products">Shop Now <span aria-hidden="true">→</span></a>
-                    <p class="promo-offer-note">Limited-time demo offer · prices shown below</p>
+                    <h2>{% if max_offer_discount %}Up to <strong>{{ max_offer_discount }}% OFF</strong>{% else %}Special <strong>Offers</strong>{% endif %}</h2>
+                    <p class="promo-discount-description">Explore limited-time deals on selected products.</p>
+                    <a class="promo-shop-button" href="{{ url_for('offers_page') }}">Shop Offers <span aria-hidden="true">→</span></a>
+                    <p class="promo-offer-note">Limited-time deals · browse all current offers</p>
                 </div>
                 <div class="promo-discount-products" aria-label="Products in this offer">
-                    <a class="promo-deal-product" href="#products" aria-label="Shop JBL wireless headphones, 40 percent off">
-                        <img src="{{ url_for('static', filename='products/jbl-headphones.png') }}" alt="">
-                        <span>JBL Headphones</span>
-                        <strong>40% OFF</strong>
+                    {% for offer in featured_offers %}
+                    <a class="promo-deal-product" href="{{ url_for('product_details_page', slug=offer.product_slug) }}" aria-label="{{ offer.title }}">
+                        {% if offer.image %}
+                        <img src="{{ url_for('static', filename=offer.image) }}" alt="">
+                        {% else %}
+                        <span class="catalog-product-icon" aria-hidden="true">{{ offer.icon }}</span>
+                        {% endif %}
+                        <span>{{ offer.name }}</span>
+                        <strong>{% if offer.discount_percent %}{{ offer.discount_percent }}% OFF{% else %}DEAL{% endif %}</strong>
                     </a>
-                    <a class="promo-deal-product" href="#products" aria-label="Shop smart watch, 25 percent off">
-                        <img src="{{ url_for('static', filename='products/smart-watch.png') }}" alt="">
-                        <span>Smart Watch</span>
-                        <strong>25% OFF</strong>
-                    </a>
-                    <a class="promo-deal-product" href="#products" aria-label="Shop wireless earbuds, 26 percent off">
-                        <img src="{{ url_for('static', filename='products/wireless-earbuds.svg') }}" alt="">
-                        <span>Earbuds</span>
-                        <strong>26% OFF</strong>
-                    </a>
+                    {% else %}
+                    <p class="promo-offer-note">New offers are coming soon.</p>
+                    {% endfor %}
                 </div>
             </article>
         </div>

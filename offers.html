@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Shop current limited-time BidMart product offers.">
+    <title>Special Offers | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% set active_page = "offers" %}
+    {% include "site_header.html" %}
+
+    <main class="catalog section-padding">
+        <div class="container">
+            <div class="section-heading">
+                <p class="tagline">LIMITED-TIME DEALS</p>
+                <h1>Special Offers</h1>
+                <p>Browse discounted products selected by the BidMart store team.</p>
+                {% if current_user_role in ("admin", "superadmin") %}
+                <a class="catalog-management-link" href="{{ url_for('admin_dashboard') }}#offers">Manage offers</a>
+                {% endif %}
+            </div>
+
+            {% if offers %}
+            <div class="offer-list-grid">
+                {% for offer in offers %}
+                <article class="offer-list-card">
+                    <a class="offer-list-image" href="{{ url_for('product_details_page', slug=offer.product_slug) }}">
+                        {% if offer.image %}
+                        <img src="{{ url_for('static', filename=offer.image) }}" alt="{{ offer.name }}">
+                        {% else %}
+                        <span class="auction-list-icon" aria-hidden="true">{{ offer.icon }}</span>
+                        {% endif %}
+                        <span class="auction-list-badge">{% if offer.discount_percent %}{{ offer.discount_percent }}% OFF{% else %}SPECIAL OFFER{% endif %}</span>
+                    </a>
+                    <div class="auction-list-content">
+                        <p class="category">{{ offer.category }}</p>
+                        <h2>{{ offer.title }}</h2>
+                        <p class="auction-list-description">{{ offer.description }}</p>
+                        <p class="offer-product-name">{{ offer.name }}</p>
+                        <div class="auction-list-prices">
+                            <div>
+                                <span>Offer price</span>
+                                <strong class="auction-list-current">৳ {{ "{:,}".format(offer.price) }}</strong>
+                            </div>
+                            <div>
+                                <span>{% if offer.old_price %}Previous price{% else %}Offer status{% endif %}</span>
+                                {% if offer.old_price %}
+                                <strong class="auction-list-original">৳ {{ "{:,}".format(offer.old_price) }}</strong>
+                                {% else %}
+                                <strong>Limited time</strong>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="offer-ends-at">Offer ends {{ offer.ends_at|datetime }}</p>
+                        <div class="product-actions offer-list-actions">
+                            <a class="product-btn product-details-btn" href="{{ url_for('product_details_page', slug=offer.product_slug) }}">View Details</a>
+                            <form method="post" action="{{ url_for('start_checkout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="product_slug" value="{{ offer.product_slug }}">
+                                <input type="hidden" name="quantity" value="1">
+                                <button class="product-btn product-buy-btn" type="submit" {% if offer.stock < 1 %}disabled{% endif %}>
+                                    {% if offer.stock %}{% if current_user_email %}Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="auction-catalog-empty">There are no active offers right now. Please check back soon.</p>
+            {% endif %}
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
+                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
+            </a>
+            <p>© 2026 BidMart. CSE Project Work II.</p>
+            <p>North East University Bangladesh</p>
+        </div>
+    </footer>
+</body>
+</html>

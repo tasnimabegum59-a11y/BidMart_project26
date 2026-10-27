@@ -1941,6 +1941,46 @@ a { /* সব link নির্বাচন করে */
     min-width: 0;
 }
 
+.admin-auction-edit,
+.admin-auction-reopen {
+    display: grid;
+    flex: 1 1 420px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+}
+
+.admin-auction-edit label,
+.admin-auction-reopen label {
+    display: grid;
+    gap: 5px;
+    color: #425664;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.admin-auction-edit input,
+.admin-auction-reopen input {
+    width: 100%;
+    min-height: 36px;
+    padding: 8px;
+    border: 1px solid #d7e0e5;
+    border-radius: 8px;
+    font: inherit;
+}
+
+.admin-offer-edit {
+    flex: 1 1 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 10px 0 0;
+    padding: 0;
+}
+
+.admin-auction-row > form:not(.admin-auction-edit):not(.admin-auction-reopen):not(.admin-offer-edit) {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
 .admin-auction-row > div > strong,
 .admin-account-row > div > strong {
     color: var(--color-primary);
@@ -2351,6 +2391,74 @@ a { /* সব link নির্বাচন করে */
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
     gap: 22px;
+}
+
+.offer-list-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 22px;
+    margin-top: 36px;
+}
+
+.offer-list-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 6px 22px rgba(12, 44, 85, 0.07);
+}
+
+.offer-list-image {
+    position: relative;
+    display: flex;
+    min-height: 210px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(145deg, #f3faf9, #fff8e4);
+}
+
+.offer-list-image img {
+    display: block;
+    width: 100%;
+    height: 210px;
+    padding: 18px;
+    object-fit: contain;
+}
+
+.offer-product-name {
+    margin: -5px 0 12px;
+    color: #607986;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.offer-ends-at {
+    margin: auto 0 12px;
+    color: #708793;
+    font-size: 12px;
+}
+
+.offer-list-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.offer-list-actions > * {
+    flex: 1;
+    min-width: 0;
+}
+
+.offer-list-actions form {
+    display: flex;
+}
+
+.offer-list-actions .product-btn {
+    width: 100%;
 }
 
 .auction-list-card {
@@ -3151,12 +3259,20 @@ a { /* সব link নির্বাচন করে */
 }
 
 @media (max-width: 900px) {
+    .offer-list-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .auction-list-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 600px) {
+    .offer-list-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .auction-list-grid {
         grid-template-columns: minmax(0, 1fr);
         gap: 16px;

@@ -46,6 +46,7 @@
             <a href="{% if active_page == 'home' %}index.html{% else %}{{ url_for('home') }}{% endif %}"{% if active_page == "home" %} class="active" aria-current="page"{% endif %}>Home</a>
             <a href="{{ url_for('products_page') }}"{% if active_page == "products" %} class="active" aria-current="page"{% endif %}>Products</a>
             <a href="{{ url_for('auctions_page') }}"{% if active_page == "auctions" %} class="active" aria-current="page"{% endif %}>Auctions</a>
+            <a href="{{ url_for('offers_page') }}"{% if active_page == "offers" %} class="active" aria-current="page"{% endif %}>Offers</a>
             {% if active_page == "home" %}
             <a href="#about">About</a>
             {% else %}
