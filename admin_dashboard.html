@@ -96,39 +96,42 @@
                     </div>
                 </form>
             </details>
-            <div class="admin-product-list">
-                {% for product in products %}
-                <article class="admin-product-card" id="product-{{ product.slug }}">
-                    <div class="admin-product-card-heading">
-                        <span class="admin-product-summary-copy">
-                            <strong>{{ product.name }}</strong>
-                            <small>{{ product.category }} · ৳ {{ "{:,}".format(product.price) }} · Stock {{ product.stock or 0 }}</small>
-                        </span>
-                        {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.slug in offer_product_slugs %}<span class="admin-status-badge is-active">Offer</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
-                    </div>
-                    <div class="admin-product-card-actions">
-                        <button class="admin-action-secondary admin-product-edit-button" type="button"
-                            data-slug="{{ product.slug }}"
-                            data-name="{{ product.name }}"
-                            data-category="{{ product.category }}"
-                            data-description="{{ product.description }}"
-                            data-price="{{ product.price }}"
-                            data-old-price="{{ product.old_price or '' }}"
-                            data-stock="{{ product.stock or 0 }}"
-                            data-features="{{ product.features_text }}"
-                            data-image="{{ product.image or '' }}"
-                            data-icon="{{ product.icon or '' }}"
-                            data-show-in-catalog="{{ 1 if product.show_in_catalog else 0 }}">Edit product</button>
-                        <form class="admin-inline-action" action="{{ url_for('admin_set_product_status', slug=product.slug, action='archive' if product.is_active else 'restore') }}" method="post">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button class="admin-action-secondary" type="submit">{{ "Archive product" if product.is_active else "Restore product" }}</button>
-                        </form>
-                    </div>
-                </article>
-                {% else %}
-                <p class="admin-empty-note">No products have been added yet.</p>
-                {% endfor %}
-            </div>
+            <details class="admin-create-panel admin-manage-panel" id="manageProducts">
+                <summary>Manage existing products ({{ products|length }})</summary>
+                <div class="admin-product-list">
+                    {% for product in products %}
+                    <article class="admin-product-card" id="product-{{ product.slug }}">
+                        <div class="admin-product-card-heading">
+                            <span class="admin-product-summary-copy">
+                                <strong>{{ product.name }}</strong>
+                                <small>{{ product.category }} · ৳ {{ "{:,}".format(product.price) }} · Stock {{ product.stock or 0 }}</small>
+                            </span>
+                            {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.slug in offer_product_slugs %}<span class="admin-status-badge is-active">Offer</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
+                        </div>
+                        <div class="admin-product-card-actions">
+                            <button class="admin-action-secondary admin-product-edit-button" type="button"
+                                data-slug="{{ product.slug }}"
+                                data-name="{{ product.name }}"
+                                data-category="{{ product.category }}"
+                                data-description="{{ product.description }}"
+                                data-price="{{ product.price }}"
+                                data-old-price="{{ product.old_price or '' }}"
+                                data-stock="{{ product.stock or 0 }}"
+                                data-features="{{ product.features_text }}"
+                                data-image="{{ product.image or '' }}"
+                                data-icon="{{ product.icon or '' }}"
+                                data-show-in-catalog="{{ 1 if product.show_in_catalog else 0 }}">Edit product</button>
+                            <form class="admin-inline-action" action="{{ url_for('admin_set_product_status', slug=product.slug, action='archive' if product.is_active else 'restore') }}" method="post">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button class="admin-action-secondary" type="submit">{{ "Archive product" if product.is_active else "Restore product" }}</button>
+                            </form>
+                        </div>
+                    </article>
+                    {% else %}
+                    <p class="admin-empty-note">No products have been added yet.</p>
+                    {% endfor %}
+                </div>
+            </details>
             <script>
                 (function() {
                     const form = document.getElementById("adminProductForm");
@@ -252,27 +255,30 @@
                 </form>
                 {% if not auction_products %}<p class="admin-help-text">Add a product to the catalog first, then select it here.</p>{% endif %}
             </details>
-            <div class="admin-auction-list">
-                {% for auction in auctions %}
-                <article class="admin-auction-row">
-                    <div><strong>{{ auction.name }}</strong><small>{{ auction.category }} · Current bid ৳ {{ "{:,}".format(auction.current_bid) }} · Ends {{ auction.ends_at|datetime }}</small></div>
-                    <button class="admin-action-secondary admin-auction-edit-button" type="button"
-                        data-slug="{{ auction.slug }}"
-                        data-name="{{ auction.name }}"
-                        data-starting-bid="{{ auction.starting_bid }}"
-                        data-minimum-increment="{{ auction.minimum_increment }}"
-                        data-is-active="{{ 1 if auction.is_active else 0 }}">Edit auction</button>
-                    {% if auction.is_active %}
-                    <form action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button class="admin-action-secondary" type="submit">Close auction</button>
-                    </form>
-                    {% else %}
-                    <span class="admin-status-badge is-inactive">Closed</span>
-                    {% endif %}
-                </article>
-                {% else %}<p class="admin-empty-note">No auctions have been created yet.</p>{% endfor %}
-            </div>
+            <details class="admin-create-panel admin-manage-panel" id="manageAuctions">
+                <summary>Manage existing auctions ({{ auctions|length }})</summary>
+                <div class="admin-auction-list">
+                    {% for auction in auctions %}
+                    <article class="admin-auction-row">
+                        <div><strong>{{ auction.name }}</strong><small>{{ auction.category }} · Current bid ৳ {{ "{:,}".format(auction.current_bid) }} · Ends {{ auction.ends_at|datetime }}</small></div>
+                        <button class="admin-action-secondary admin-auction-edit-button" type="button"
+                            data-slug="{{ auction.slug }}"
+                            data-name="{{ auction.name }}"
+                            data-starting-bid="{{ auction.starting_bid }}"
+                            data-minimum-increment="{{ auction.minimum_increment }}"
+                            data-is-active="{{ 1 if auction.is_active else 0 }}">Edit auction</button>
+                        {% if auction.is_active %}
+                        <form action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="admin-action-secondary" type="submit">Close auction</button>
+                        </form>
+                        {% else %}
+                        <span class="admin-status-badge is-inactive">Closed</span>
+                        {% endif %}
+                    </article>
+                    {% else %}<p class="admin-empty-note">No auctions have been created yet.</p>{% endfor %}
+                </div>
+            </details>
             <script>
                 (function() {
                     const form = document.getElementById("adminAuctionForm");
