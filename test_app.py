@@ -660,6 +660,9 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="notification-bell"', response.data)
                 self.assertIn(b'href="/notifications"', response.data)
                 self.assertIn(b'href="/my-orders"', response.data)
+                self.assertIn(b'class="footer-copyright">\xc2\xa9 2026 BidMart</p>', response.data)
+                self.assertIn(b'href="mailto:bidmart@gmail.com"', response.data)
+                self.assertNotIn(b"North East University Bangladesh", response.data)
                 self.assertNotIn(b'class="superadmin-notifications"', response.data)
                 self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
                 self.assertIn(active_link, response.data)
@@ -706,6 +709,18 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="container navbar"', response.data)
                 self.assertIn(b'<nav class="nav-links" aria-label="Main navigation">', response.data)
                 self.assertIn(b'href="/auctions">Auctions</a>', response.data)
+                self.assertIn(b'class="footer-copyright">\xc2\xa9 2026 BidMart</p>', response.data)
+                self.assertIn(b'href="mailto:bidmart@gmail.com"', response.data)
+                self.assertNotIn(b"North East University Bangladesh", response.data)
+
+    def test_homepage_about_describes_bidmart_shopping_and_auctions(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"ABOUT BIDMART", response.data)
+        self.assertIn(b"Shopping and bidding, all in one place", response.data)
+        self.assertIn(b"online shopping and the excitement of bidding", response.data)
+        self.assertNotIn(b"ABOUT OUR PROJECT", response.data)
+        self.assertNotIn(b"CSE Project Work II", response.data)
 
     def test_purchase_notifications_reach_buyer_admin_and_superadmin(self):
         self.assertEqual(self.start_checkout().status_code, 302)

@@ -254,22 +254,13 @@
     <!-- About Section শুরু -->
     <section class="about section-padding" id="about"> <!-- About section শুরু -->
         <div class="container about-content"> <!-- About content সাজায় -->
-            <p class="tagline">ABOUT OUR PROJECT</p> <!-- Project-এর পরিচিতি label -->
-            <h2>What is BidMart?</h2> <!-- Project পরিচিতির শিরোনাম -->
-            <p>BidMart is an e-commerce and online auction system developed as a CSE Project Work II project at North East University Bangladesh. It aims to combine regular online shopping with time-limited product bidding.</p> <!-- প্রজেক্টের মূল উদ্দেশ্য ব্যাখ্যা করে -->
+            <p class="tagline">ABOUT BIDMART</p> <!-- BidMart-এর পরিচিতি label -->
+            <h2>Shopping and bidding, all in one place</h2> <!-- BidMart-এর পরিচিতি শিরোনাম -->
+            <p>Discover products for everyday life, find great offers, and join time-limited auctions on BidMart. We bring online shopping and the excitement of bidding together in one easy-to-use marketplace.</p> <!-- BidMart marketplace-এর পরিচিতি -->
         </div> <!-- About content শেষ -->
     </section> <!-- About Section শেষ -->
 
-    <!-- Footer শুরু: পেজের নিচের অংশ -->
-    <footer class="footer"> <!-- Footer section শুরু -->
-        <div class="container footer-content"> <!-- Footer content সাজায় -->
-            <a href="index.html" class="logo footer-logo" aria-label="BidMart home">
-                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-            </a> <!-- Footer-এ logo দেখায় -->
-            <p>© 2026 BidMart. CSE Project Work II.</p> <!-- Copyright ও project course-এর পরিচয় -->
-            <p>North East University Bangladesh</p> <!-- বিশ্ববিদ্যালয়ের নাম -->
-        </div> <!-- Footer content শেষ -->
-    </footer> <!-- Footer শেষ -->
+    {% include "site_footer.html" %}
 
 </body> <!-- দৃশ্যমান পেজের content শেষ -->
 </html> <!-- সম্পূর্ণ HTML ডকুমেন্ট শেষ -->

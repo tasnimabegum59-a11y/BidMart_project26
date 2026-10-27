@@ -534,15 +534,7 @@
         </section>
         {% endif %}
     </main>
-    <footer class="footer">
-        <div class="container footer-content">
-            <a href="{{ url_for('home') }}" class="logo footer-logo" aria-label="BidMart home">
-                <img src="{{ url_for('static', filename='bidmart-logo.png') }}" alt="BidMart">
-            </a>
-            <p>© 2026 BidMart. CSE Project Work II.</p>
-            <p>North East University Bangladesh</p>
-        </div>
-    </footer>
+    {% include "site_footer.html" %}
     <script>
         const targetedProduct = document.getElementById(window.location.hash.slice(1));
         if (targetedProduct && targetedProduct.matches("details.admin-product-card")) {
