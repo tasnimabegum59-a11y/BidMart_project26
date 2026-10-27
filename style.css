@@ -2473,16 +2473,6 @@ a { /* সব link নির্বাচন করে */
 }
 
 /* Auction details page */
-.auction-catalog-notice {
-    margin: 0 0 24px;
-    padding: 12px 16px;
-    border-left: 3px solid #d99b22;
-    border-radius: 6px;
-    background: #fff9e9;
-    color: #6d5a31;
-    font-size: 13px;
-}
-
 .auction-list-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2605,10 +2595,14 @@ a { /* সব link নির্বাচন করে */
     left: 12px;
     padding: 5px 9px;
     border-radius: 999px;
-    background: #e83a52;
+    background: #17834c;
     color: #ffffff;
     font-size: 10px;
     font-weight: 800;
+}
+
+.auction-list-badge.is-ended {
+    background: #697982;
 }
 
 .auction-list-content {
@@ -3469,13 +3463,17 @@ a { /* সব link নির্বাচন করে */
     gap: 8px;
     padding: 7px 12px;
     border-radius: 999px;
-    background: #e83a52;
+    background: #17834c;
     color: #ffffff;
     font-size: 12px;
     font-weight: 800;
 }
 
-.auction-live-badge span {
+.auction-live-badge.is-ended {
+    background: #697982;
+}
+
+.auction-live-badge > span:first-child {
     width: 9px;
     height: 9px;
     border-radius: 50%;

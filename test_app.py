@@ -1843,10 +1843,37 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertIn(b"Current bid", response.data)
         self.assertIn(b"Time left:", response.data)
         self.assertIn(b"Wireless Earbuds", response.data)
-        self.assertIn(b"DEMO AUCTION", response.data)
+        self.assertIn(b"RUNNING AUCTION", response.data)
+        self.assertIn(b"ENDED AUCTION", response.data)
+        self.assertNotIn(b"DEMO AUCTION", response.data)
+        self.assertNotIn(b"These are demo listings", response.data)
         self.assertIn(b'href="/auctions" class="active" aria-current="page">Auctions</a>', response.data)
         self.assertNotIn(b"Manage auctions", response.data)
         self.assertNotIn(b"Close auction", response.data)
+
+    def test_auction_status_badges_follow_running_and_ended_times(self):
+        now = int(time.time())
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (now + 3600, "smart-watch-bluetooth"),
+            )
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (now - 3600, "iphone-14-pro-max"),
+            )
+
+        listing = self.client.get("/auctions")
+        self.assertIn(b"RUNNING AUCTION", listing.data)
+        self.assertIn(b"ENDED AUCTION", listing.data)
+        self.assertNotIn(b"These are demo listings", listing.data)
+
+        running_detail = self.client.get("/auction/smart-watch-bluetooth")
+        ended_detail = self.client.get("/auction/iphone-14-pro-max")
+        self.assertIn(b">RUNNING AUCTION</span>", running_detail.data)
+        self.assertIn(b">ENDED AUCTION</span>", ended_detail.data)
+        self.assertNotIn(b"DEMO AUCTION</span>", running_detail.data)
+        self.assertNotIn(b"DEMO AUCTION</span>", ended_detail.data)
 
     def test_non_featured_auction_can_open_details_and_accept_a_bid(self):
         self.add_logged_in_bidder()

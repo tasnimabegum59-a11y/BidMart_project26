@@ -29,7 +29,10 @@
 
         <section class="auction-detail-card" aria-labelledby="auctionTitle">
             <div class="auction-detail-gallery">
-                <span class="auction-live-badge"><span aria-hidden="true"></span> DEMO AUCTION</span>
+                <span class="auction-live-badge{% if auction.ends_at <= now %} is-ended{% endif %}" id="auctionStatusBadge">
+                    <span aria-hidden="true"></span>
+                    <span data-auction-status-text>{% if auction.ends_at <= now %}ENDED AUCTION{% else %}RUNNING AUCTION{% endif %}</span>
+                </span>
                 {% if auction.image %}
                 <img
                     class="auction-detail-image"
@@ -175,6 +178,8 @@
     <script>
         const auctionCountdown = document.getElementById("auctionCountdown");
         const auctionEndTime = Number(auctionCountdown.dataset.endsAt) * 1000;
+        const auctionStatusBadge = document.getElementById("auctionStatusBadge");
+        const auctionStatusText = auctionStatusBadge.querySelector("[data-auction-status-text]");
 
         function updateAuctionCountdown() {
             const remaining = Math.max(0, Math.floor((auctionEndTime - Date.now()) / 1000));
@@ -188,6 +193,8 @@
 
             if (remaining === 0) {
                 auctionCountdown.closest(".auction-countdown").classList.add("is-ended");
+                auctionStatusBadge.classList.add("is-ended");
+                auctionStatusText.textContent = "ENDED AUCTION";
                 const bidForm = document.querySelector(".auction-bid-form");
                 if (bidForm) {
                     bidForm.querySelectorAll("input, button").forEach((control) => {
