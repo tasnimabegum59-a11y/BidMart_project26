@@ -891,7 +891,11 @@ def _checkout_lines():
     else:
         requested = [{"product_slug": draft.get("product_slug"), "quantity": draft.get("quantity")}]
 
-    products = {product["slug"]: product for product in get_products()}
+    products = {
+        entry.get("product_slug"): get_product(entry.get("product_slug"))
+        for entry in requested
+        if isinstance(entry, dict)
+    }
     with database() as connection:
         inventory = {
             row["product_slug"]: row["stock"]

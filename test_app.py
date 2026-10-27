@@ -978,6 +978,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertNotIn(b"Test Desk Lamp", self.client.get("/products").data)
         self.assertEqual(self.client.get("/products/test-offer-desk-lamp").status_code, 200)
         self.assertEqual(bidmart.get_product("test-offer-desk-lamp")["price"], 1500)
+        self.login_as_checkout_buyer()
         offer_checkout = self.client.post("/checkout/start", data={
             "csrf_token": csrf,
             "product_slug": "test-offer-desk-lamp",
@@ -985,6 +986,10 @@ class AuthenticationFlowTests(unittest.TestCase):
         })
         self.assertEqual(offer_checkout.headers["Location"], "/checkout")
         self.assertIn(b"1,500", self.client.get("/checkout").data)
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = self.email
+            session["user_name"] = "Store Admin"
         with bidmart.database() as connection:
             offer_id = connection.execute(
                 "SELECT id FROM offers WHERE product_slug = 'test-offer-desk-lamp'"
