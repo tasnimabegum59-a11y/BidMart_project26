@@ -3752,7 +3752,8 @@ a { /* সব link নির্বাচন করে */
 /* ============================= */
 
 .footer { /* পেজের নিচের footer */
-    background-color: var(--color-primary); /* footer-এর background গাঢ় নীল করে */
+    background-color: #faf9dc;
+    border-top: 1px solid #e9e6bf;
     padding: 28px 0; /* footer-এর উপরে ও নিচে জায়গা রাখে */
 }
 
@@ -3765,11 +3766,17 @@ a { /* সব link নির্বাচন করে */
 }
 
 .footer-logo { /* Footer-এর logo */
-    color: #ffffff; /* logo-এর মূল লেখা সাদা করে */
+    padding: 0;
+}
+
+.footer-logo img {
+    width: 168px;
+    height: 108px;
+    object-fit: contain;
 }
 
 .footer-content p { /* Footer-এর paragraph */
-    color: #d5deeb; /* footer-এর লেখা হালকা রং করে */
+    color: #536779;
     font-size: 13px; /* footer-এর লেখা ছোট রাখে */
 }
 
@@ -3878,6 +3885,11 @@ a { /* সব link নির্বাচন করে */
     .footer-content { /* Mobile footer content */
         flex-direction: column; /* footer-এর element-গুলো উপর-নিচে রাখে */
         text-align: center; /* footer-এর লেখা মাঝখানে রাখে */
+    }
+
+    .footer-logo img {
+        width: 148px;
+        height: 96px;
     }
 
 } /* 600px breakpoint-এর নিয়ম শেষ */
@@ -4083,7 +4095,7 @@ a { /* সব link নির্বাচন করে */
 }
 
 .footer p {
-    color: #d5deeb;
+    color: #536779;
     font-size: 13px;
 }
 

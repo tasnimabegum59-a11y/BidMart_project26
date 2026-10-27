@@ -33,16 +33,9 @@
                             <span>1</span>
                             <div>
                                 <h2 id="contactHeading">Contact information</h2>
-                                <p>Login is optional. Guest checkout is available.</p>
+                                <p>Checkout is available to signed-in BidMart accounts.</p>
                             </div>
                         </div>
-                        {% if not current_user_email %}
-                        <div class="checkout-account-links">
-                            <a href="{{ url_for('login_page', next='/checkout') }}">Login</a>
-                            <a href="{{ url_for('registration_page') }}">Create account</a>
-                            <span>or continue as guest</span>
-                        </div>
-                        {% endif %}
                         <div class="checkout-fields">
                             <div class="checkout-field">
                                 <label for="customerName">Full name <span>*</span></label>

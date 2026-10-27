@@ -100,8 +100,9 @@
                     {% endif %}
                 {% else %}
                     <div class="auction-login-prompt">
-                        <p>Log in with your verified BidMart account to place a bid.</p>
+                        <p>Log in or create a verified BidMart account to place a bid.</p>
                         <a class="auction-place-bid" href="{{ url_for('login_page', next=auction_url) }}">Login to Bid</a>
+                        <a class="order-continue-link" href="{{ url_for('registration_page', next=auction_url) }}">Create an account</a>
                     </div>
                 {% endif %}
             </div>

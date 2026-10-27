@@ -61,7 +61,7 @@
                                     <input type="hidden" name="product_slug" value="{{ product.slug }}">
                                     <input type="hidden" name="quantity" value="1">
                                     <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if product.stock < 1 %}disabled{% endif %}>
-                                        {% if product.stock %}🛒 Buy Now{% else %}Out of stock{% endif %}
+                                        {% if product.stock %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
                                     </button>
                                 </form>
                                 {% if current_user_role in ("admin", "superadmin") %}

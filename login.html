@@ -110,7 +110,7 @@
                 <!-- Registration Page-এর লিংক -->
                 <p class="form-note">
                     Don't have an account?
-                    <a href="register.html">Register Now</a>
+                    <a href="{{ url_for('registration_page', next=next_url) if next_url else url_for('registration_page') }}">Register Now</a>
                 </p>
 
             </section>

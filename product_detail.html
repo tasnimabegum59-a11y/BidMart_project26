@@ -101,7 +101,7 @@
                             <input id="productQuantity" name="quantity" type="number" min="1" max="{{ stock }}" value="1" inputmode="numeric" required {% if stock < 1 %}disabled{% endif %}>
                         </div>
                         <button class="product-detail-buy" id="productBuyNow" type="submit" {% if stock < 1 %}disabled{% endif %}>
-                            {% if stock > 0 %}Buy Now{% else %}Out of stock{% endif %}
+                            {% if stock > 0 %}{% if current_user_email %}Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
                         </button>
                     </form>
 

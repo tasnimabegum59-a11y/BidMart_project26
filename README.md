@@ -38,7 +38,7 @@ Public registration never grants an elevated role immediately. To bootstrap the 
 C:/Users/DESKTOP/AppData/Local/Programs/Python/Python312/python.exe create_superadmin.py
 ```
 
-This local-only command prompts for a name, email, and password. If the email belongs to an existing verified User, enter that account's current password to upgrade it; a wrong password will not change the account. If the email is new, the command creates the first Superadmin. It refuses to run if a Superadmin already exists. Start the app again and sign in with those credentials. After that, people can request Admin or Superadmin from registration; the existing Superadmin reviews requests at `/superadmin/admin-requests`.
+This local-only command prompts for a name, email, and password. If the email belongs to an existing verified User, enter that account's current password to upgrade it; a wrong password will not change the account. If the email is new, the command creates the first Superadmin. It refuses to run if a Superadmin already exists. Start the app again and sign in with those credentials. After that, people can request Admin access from registration; the existing Superadmin reviews requests at `/superadmin/admin-requests`.
 
 ## Tests
 
@@ -54,7 +54,7 @@ Before deployment, use HTTPS, set `APP_BASE_URL` to the HTTPS site, set `COOKIE_
 
 ## Product checkout
 
-Buy Now on the home page, product catalog, or product detail page starts a single-product checkout. Guests can place orders without an account; signed-in buyers have their saved name, email, and mobile prefilled. Current catalog products use a standard (non-configurable) variant and start with 10 demo stock units. The server validates product, quantity, shipping details, inventory, coupon, and price before saving an order.
+Buy Now on the home page, product catalog, or product detail page requires a signed-in, email-verified BidMart account. Guests are sent to login first and can continue through account registration and email verification; the selected product remains in checkout after they sign in. The checkout and order endpoints also reject requests without an authenticated account. Auction details are public, but bidding requires login or account creation and is enforced on the server. Current catalog products use a standard (non-configurable) variant and start with 10 demo stock units. The server validates product, quantity, shipping details, inventory, coupon, and price before saving an order.
 
 Delivery is ৳60 for Dhaka and ৳120 for the other listed divisions. The demo coupon `SAVE50` deducts ৳50 from orders of at least ৳500. COD orders are confirmed with payment status `unpaid`.
 

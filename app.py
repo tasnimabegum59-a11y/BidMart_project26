@@ -1098,6 +1098,9 @@ def start_checkout():
         "quantity": quantity,
         "checkout_key": secrets.token_urlsafe(24),
     }
+    if not session.get("user_id"):
+        flash("Log in or create a verified account before checkout.", "error")
+        return redirect(url_for("login_page", next=url_for("checkout_page")))
     return redirect(url_for("checkout_page"))
 
 
@@ -1110,6 +1113,9 @@ def checkout_page():
             order_number=draft["order_number"],
             token=draft["tracking_token"],
         ))
+    if not session.get("user_id"):
+        flash("Log in or create a verified account before checkout.", "error")
+        return redirect(url_for("login_page", next=url_for("checkout_page")))
     context = _checkout_context()
     if not context:
         flash("Choose a product before starting checkout.", "error")
@@ -1119,6 +1125,8 @@ def checkout_page():
 
 @app.post("/checkout/apply-coupon")
 def apply_checkout_coupon():
+    if not session.get("user_id"):
+        return jsonify(error="Log in or create a verified account before checkout."), 401
     product = _checkout_product()
     if not product:
         return jsonify(error="Your checkout session expired. Choose the product again."), 400
@@ -1140,6 +1148,9 @@ def apply_checkout_coupon():
 
 @app.post("/checkout")
 def place_checkout_order():
+    if not session.get("user_id"):
+        flash("Log in or create a verified account before placing an order.", "error")
+        return redirect(url_for("login_page", next=url_for("checkout_page")))
     draft = session.get("checkout_draft")
     product = _checkout_product()
     if not draft or not product:
@@ -1494,6 +1505,15 @@ def stylesheet():
     return send_from_directory(ROOT, "style.css", mimetype="text/css")
 
 
+def valid_login_next_url(candidate):
+    allowed_destinations = {url_for("checkout_page")}
+    allowed_destinations.update(
+        url_for("auction_details", slug=listing["slug"])
+        for listing in get_auction_listings()
+    )
+    return candidate if candidate in allowed_destinations else ""
+
+
 @app.get("/register.html")
 def registration_page():
     registration_request = None
@@ -1509,7 +1529,14 @@ def registration_page():
             ).fetchone()
         if not registration_request:
             session.pop("pending_role_request_account_id", None)
-    return render_template("register.html", registration_request=registration_request)
+    next_url = valid_login_next_url(request.args.get("next", ""))
+    if not next_url:
+        next_url = valid_login_next_url(session.get("login_next_url", ""))
+    return render_template(
+        "register.html",
+        registration_request=registration_request,
+        next_url=next_url,
+    )
 
 
 def create_initial_superadmin(full_name, email, password):
@@ -2185,6 +2212,9 @@ def register():
     email = request.form.get("email", "").strip().casefold()
     phone = request.form.get("phone", "").strip()
     role = request.form.get("role", "user")
+    next_url = valid_login_next_url(request.form.get("next", ""))
+    if not next_url:
+        next_url = valid_login_next_url(session.get("login_next_url", ""))
     password = request.form.get("password", "")
     confirm_password = request.form.get("confirm_password", "")
 
@@ -2214,6 +2244,8 @@ def register():
         if role in ("admin", "superadmin"):
             session["pending_role_request_account_id"] = result.lastrowid
         if role == "user":
+            if next_url:
+                session["login_next_url"] = next_url
             issue_verification(email)
     except sqlite3.IntegrityError:
         flash(
@@ -2239,7 +2271,7 @@ def register():
         return redirect(url_for("registration_page"))
     else:
         flash("Account created. Check your inbox for the verification link; it expires in 30 minutes.", "success")
-    return redirect(url_for("login_page"))
+    return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
 
 
 @app.post("/resend-verification")
@@ -2298,14 +2330,15 @@ def verify_email(token):
         flash("Email verified. You can now log in.", "success")
     else:
         flash("That verification link is invalid, expired, or already used.", "error")
-    return redirect(url_for("login_page"))
+    next_url = valid_login_next_url(session.get("login_next_url", ""))
+    return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
 
 
 @app.get("/login.html")
 def login_page():
-    next_url = request.args.get("next", "")
-    if next_url not in (url_for("auction_details"), url_for("checkout_page")):
-        next_url = ""
+    next_url = valid_login_next_url(request.args.get("next", ""))
+    if not next_url:
+        next_url = valid_login_next_url(session.get("login_next_url", ""))
     return render_template("login.html", next_url=next_url)
 
 
@@ -2377,9 +2410,9 @@ def reset_password(token):
 def login():
     email = request.form.get("email", "").strip().casefold()
     password = request.form.get("password", "")
-    next_url = request.form.get("next", "")
-    if next_url not in (url_for("auction_details"), url_for("checkout_page")):
-        next_url = ""
+    next_url = valid_login_next_url(request.form.get("next", ""))
+    if not next_url:
+        next_url = valid_login_next_url(session.get("login_next_url", ""))
     with database() as connection:
         account = connection.execute(
             "SELECT id, email, full_name, password_hash, is_verified, role, is_active FROM accounts WHERE email = ?",

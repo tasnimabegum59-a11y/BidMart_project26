@@ -31,7 +31,22 @@ class AuthenticationFlowTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             return session["csrf_token"]
 
-    def start_checkout(self, slug="casual-sneakers", quantity="1"):
+    def login_as_checkout_buyer(self):
+        with bidmart.database() as connection:
+            result = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Checkout Buyer", "checkout-buyer@example.invalid", "01712345678",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = result.lastrowid
+            session["user_email"] = "checkout-buyer@example.invalid"
+            session["user_name"] = "Checkout Buyer"
+
+    def start_checkout(self, slug="casual-sneakers", quantity="1", as_guest=False):
+        if not as_guest:
+            self.login_as_checkout_buyer()
         products = self.client.get("/products")
         return self.client.post("/checkout/start", data={
             "csrf_token": self.csrf_from(products),
@@ -255,6 +270,67 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
+        self.assertIn(b"Login to Buy", response.data)
+        self.assertNotIn(b"continue as guest", response.data)
+        self.assertIn(b"Login to Buy", self.client.get("/").data)
+        product_detail = self.client.get("/products/casual-sneakers")
+        self.assertIn(b"Login to Buy", product_detail.data)
+
+    def test_guest_cannot_reach_checkout_without_login(self):
+        response = self.start_checkout(as_guest=True)
+        self.assertEqual(response.headers["Location"], "/login.html?next=/checkout")
+
+        direct_checkout = self.client.get("/checkout")
+        self.assertEqual(direct_checkout.status_code, 302)
+        self.assertEqual(direct_checkout.headers["Location"], "/login.html?next=/checkout")
+
+        csrf = self.csrf_from(self.client.get("/login.html?next=/checkout"))
+        coupon_response = self.client.post("/checkout/apply-coupon", data={
+            "csrf_token": csrf,
+            "coupon_code": "SAVE50",
+            "division": "Dhaka",
+            "quantity": "1",
+        })
+        self.assertEqual(coupon_response.status_code, 401)
+
+        order_response = self.client.post(
+            "/checkout", data=self.checkout_form(csrf, payment_method="cod")
+        )
+        self.assertEqual(order_response.status_code, 302)
+        self.assertEqual(order_response.headers["Location"], "/login.html?next=/checkout")
+        with bidmart.database() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+
+    def test_checkout_signup_verification_and_login_preserve_product_draft(self):
+        self.start_checkout(as_guest=True)
+        register_page = self.client.get("/register.html?next=/checkout")
+        self.assertIn(b'name="next" value="/checkout"', register_page.data)
+        with patch.object(bidmart, "send_verification_email") as send_email:
+            response = self.client.post("/register", data={
+                "csrf_token": self.csrf_from(register_page),
+                "next": "/checkout",
+                "full_name": "New Checkout Buyer",
+                "email": self.email,
+                "role": "user",
+                "password": "secure-test-password",
+                "confirm_password": "secure-test-password",
+            })
+            token = send_email.call_args.args[1]
+        self.assertEqual(response.headers["Location"], "/login.html?next=/checkout")
+
+        verification = self.client.get(f"/verify/{token}")
+        self.assertEqual(verification.headers["Location"], "/login.html?next=/checkout")
+        login_page = self.client.get(verification.headers["Location"])
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/checkout",
+            "email": self.email,
+            "password": "secure-test-password",
+        })
+        self.assertEqual(login_response.headers["Location"], "/checkout")
+        checkout = self.client.get("/checkout")
+        self.assertEqual(checkout.status_code, 200)
+        self.assertIn(b"Casual Sneakers", checkout.data)
         self.assertNotIn(b"Manage products", response.data)
         self.assertNotIn(b"Manage this product", response.data)
 
@@ -271,12 +347,48 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"10 in stock", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
 
-    def test_guest_cod_checkout_applies_server_coupon_and_confirms_order_once(self):
-        start = self.start_checkout(quantity="2")
+    def test_checkout_requires_login_and_registered_buyer_can_confirm_order(self):
+        start = self.start_checkout(quantity="2", as_guest=True)
         self.assertEqual(start.status_code, 302)
+        self.assertEqual(start.headers["Location"], "/login.html?next=/checkout")
+        login_page = self.client.get(start.headers["Location"])
+        self.assertIn(b'href="/register.html?next=/checkout"', login_page.data)
+        self.assertEqual(self.client.get("/checkout").headers["Location"], "/login.html?next=/checkout")
+        csrf = self.csrf_from(login_page)
+        coupon = self.client.post("/checkout/apply-coupon", data={
+            "csrf_token": csrf,
+            "coupon_code": "SAVE50",
+            "division": "Chattogram",
+            "quantity": "2",
+        })
+        self.assertEqual(coupon.status_code, 401)
+        self.assertIn("Log in or create a verified account", coupon.json["error"])
+        guest_order = self.client.post(
+            "/checkout",
+            data=self.checkout_form(csrf, quantity="2", payment_method="cod"),
+        )
+        self.assertEqual(guest_order.headers["Location"], "/login.html?next=/checkout")
+        with bidmart.database() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Checkout Buyer", "checkout-buyer@example.invalid", "01712345678",
+                 generate_password_hash("secure-password"), 1),
+            )
+        login_page = self.client.get("/login.html?next=/checkout")
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/checkout",
+            "email": "checkout-buyer@example.invalid",
+            "password": "secure-password",
+        })
+        self.assertEqual(login_response.headers["Location"], "/checkout")
         checkout = self.client.get("/checkout")
         self.assertEqual(checkout.status_code, 200)
-        self.assertIn(b"continue as guest", checkout.data)
+        self.assertNotIn(b"continue as guest", checkout.data)
         self.assertIn(b"Standard variant", checkout.data)
 
         csrf = self.csrf_from(checkout)
@@ -481,7 +593,7 @@ class AuthenticationFlowTests(unittest.TestCase):
                 "VALUES (?, ?, ?, ?, 'user', 1, ?)",
                 ("Saved Buyer", self.email, "01712345678", generate_password_hash("secure-password"), 1),
             )
-        self.start_checkout()
+        self.start_checkout(as_guest=True)
         login_page = self.client.get("/login.html?next=/checkout")
         self.assertIn(b'name="next" value="/checkout"', login_page.data)
         response = self.client.post("/login", data={
@@ -1216,6 +1328,7 @@ class AuctionFlowTests(unittest.TestCase):
         ):
             self.assertIn(detail, response.data)
         self.assertIn(b"Login to Bid", response.data)
+        self.assertIn(b"Create an account", response.data)
         self.assertNotIn(b'name="bid_amount"', response.data)
 
     def test_auctions_page_shows_product_details_prices_timers_and_bid_links(self):

@@ -67,6 +67,7 @@
                 <!-- একটি মাত্র Registration Form -->
                 <form action="/register" method="post" id="registerForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
 
                     <!-- Full Name -->
                     <label for="full-name">Full Name</label>
