@@ -1758,13 +1758,11 @@ def admin_dashboard():
     )
 
 
-def _admin_product_values(form):
+def _admin_product_values(form, image_file, existing_image=None, existing_icon=None):
     name = form.get("name", "").strip()
     slug = form.get("slug", "").strip().lower()
     category = form.get("category", "").strip()
     description = form.get("description", "").strip()
-    image = form.get("image", "").strip().replace("\\", "/")
-    icon = form.get("icon", "").strip()
     features = [part.strip() for part in form.get("features", "").split(",") if part.strip()]
     try:
         price = int(form.get("price", ""))
@@ -1784,19 +1782,29 @@ def _admin_product_values(form):
         return None, "Previous price must be greater than or equal to the current price."
     if len(features) > 8 or any(len(feature) > 120 for feature in features):
         return None, "Add at most 8 product features, each up to 120 characters."
-    if image:
-        image_path = (ROOT / "static" / image).resolve()
-        if not image_path.is_relative_to((ROOT / "static").resolve()) or not image_path.is_file():
-            return None, "Choose an image file that already exists in the static folder."
-    elif not icon or len(icon) > 8:
-        return None, "Provide a static image path or a short product icon."
+    image_extension = None
+    if image_file and image_file.filename:
+        if not secure_filename(image_file.filename):
+            return None, "Choose a valid product image file."
+        image_header = image_file.stream.read(12)
+        image_file.stream.seek(0)
+        if image_header.startswith(b"\x89PNG\r\n\x1a\n"):
+            image_extension = "png"
+        elif image_header.startswith(b"\xff\xd8\xff"):
+            image_extension = "jpg"
+        elif image_header.startswith(b"RIFF") and image_header[8:12] == b"WEBP":
+            image_extension = "webp"
+        else:
+            return None, "Upload a valid PNG, JPEG, or WebP product image."
+    elif not existing_image and not existing_icon:
+        return None, "Upload a product image (PNG, JPEG, or WebP)."
     return {
         "slug": slug,
         "name": name,
         "category": category,
         "description": description,
-        "image": image or None,
-        "icon": icon or None,
+        "image_extension": image_extension,
+        "icon": None if image_extension else existing_icon,
         "price": price,
         "old_price": old_price,
         "stock": stock,
@@ -1805,13 +1813,27 @@ def _admin_product_values(form):
     }, None
 
 
+def _save_admin_product_image(slug, image_file, extension):
+    if not image_file or not extension:
+        return None
+    upload_directory = ROOT / "static" / "uploads" / "products"
+    upload_directory.mkdir(parents=True, exist_ok=True)
+    filename = f"{slug}-{secrets.token_hex(8)}.{extension}"
+    image_file.save(upload_directory / filename)
+    return f"uploads/products/{filename}"
+
+
 @app.post("/admin/products/create")
 def admin_create_product():
     require_staff()
-    values, error = _admin_product_values(request.form)
+    image_file = request.files.get("image")
+    values, error = _admin_product_values(request.form, image_file)
     if error:
         flash(error, "error")
         return redirect(url_for("admin_dashboard") + "#products")
+    image_path = _save_admin_product_image(
+        values["slug"], image_file, values["image_extension"]
+    )
     now = int(time.time())
     try:
         with database() as connection:
@@ -1820,7 +1842,7 @@ def admin_create_product():
                 (slug, name, category, description, image, icon, price, old_price, features_json, show_in_catalog, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (values["slug"], values["name"], values["category"], values["description"],
-                 values["image"], values["icon"], values["price"], values["old_price"],
+                 image_path, values["icon"], values["price"], values["old_price"],
                  values["features_json"], values["show_in_catalog"], now),
             )
             connection.execute(
@@ -1828,6 +1850,8 @@ def admin_create_product():
                 (values["slug"], values["stock"]),
             )
     except sqlite3.IntegrityError:
+        if image_path:
+            (ROOT / "static" / image_path).unlink(missing_ok=True)
         flash("A product with that slug already exists.", "error")
         return redirect(url_for("admin_dashboard") + "#products")
     flash("Product created and published.", "success")
@@ -1837,18 +1861,33 @@ def admin_create_product():
 @app.post("/admin/products/<slug>/update")
 def admin_update_product(slug):
     require_staff()
-    values, error = _admin_product_values(request.form)
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT image, icon FROM catalog_products WHERE slug = ?", (slug,)
+        ).fetchone()
+    if not existing:
+        abort(404)
+    image_file = request.files.get("image")
+    values, error = _admin_product_values(
+        request.form, image_file,
+        existing_image=existing["image"],
+        existing_icon=existing["icon"],
+    )
     if error:
         flash(error, "error")
         return redirect(url_for("admin_dashboard") + "#products")
     if values["slug"] != slug:
         flash("Product slugs cannot be changed after creation.", "error")
         return redirect(url_for("admin_dashboard") + "#products")
+    image_path = _save_admin_product_image(
+        values["slug"], image_file, values["image_extension"]
+    )
     with database() as connection:
         result = connection.execute(
-            """UPDATE catalog_products SET name = ?, category = ?, description = ?, image = ?, icon = ?,
+            """UPDATE catalog_products SET name = ?, category = ?, description = ?,
+            image = COALESCE(?, image), icon = ?,
             price = ?, old_price = ?, features_json = ?, show_in_catalog = ?, updated_at = ? WHERE slug = ?""",
-            (values["name"], values["category"], values["description"], values["image"],
+            (values["name"], values["category"], values["description"], image_path,
              values["icon"], values["price"], values["old_price"], values["features_json"],
              values["show_in_catalog"], int(time.time()), slug),
         )

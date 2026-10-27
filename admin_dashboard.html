@@ -75,59 +75,113 @@
                 <span>{{ products|length }} products</span>
             </div>
             <details class="admin-create-panel">
-                <summary>Add a product</summary>
-                <form class="admin-product-form" action="{{ url_for('admin_create_product') }}" method="post">
+                <summary id="productFormHeading">Add a product</summary>
+                <form class="admin-product-form" id="adminProductForm" action="{{ url_for('admin_create_product') }}" method="post" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="existing_slug" value="">
                     <label>Product name<input name="name" maxlength="120" required></label>
                     <label>Product slug<input name="slug" placeholder="wireless-headphones" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
                     <label>Category<input name="category" maxlength="80" required></label>
-                    <label>Store visibility<select name="show_in_catalog"><option value="1" selected>Main catalog</option><option value="0">Auction only</option></select></label>
+                    <label>Store visibility<select name="show_in_catalog"><option value="1">Main catalog</option><option value="0">Auction only</option></select></label>
                     <label>Price (৳)<input name="price" type="number" min="1" required></label>
                     <label>Previous price (৳)<input name="old_price" type="number" min="1"></label>
                     <label>Stock<input name="stock" type="number" min="0" max="1000000" required></label>
-                    <label>Static image path<input name="image" placeholder="products/item.png"></label>
-                    <label>Icon (if no image)<input name="icon" maxlength="8" placeholder="📦"></label>
+                    <label>Product image<input name="image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+                    <div class="admin-offer-image-preview" id="productImagePreview" hidden></div>
                     <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required></textarea></label>
                     <label class="admin-field-wide">Features, comma separated<input name="features" placeholder="Fast delivery, 1-year warranty"></label>
-                    <div class="admin-form-actions"><button class="admin-action-primary" type="submit">Publish product</button></div>
+                    <div class="admin-form-actions">
+                        <button class="admin-action-primary" id="productSubmitButton" type="submit">Publish product</button>
+                        <button class="admin-action-secondary" id="productCancelEdit" type="button" hidden>Cancel edit</button>
+                    </div>
                 </form>
             </details>
             <div class="admin-product-list">
                 {% for product in products %}
-                <details class="admin-product-card" id="product-{{ product.slug }}">
-                    <summary>
+                <article class="admin-product-card" id="product-{{ product.slug }}">
+                    <div class="admin-product-card-heading">
                         <span class="admin-product-summary-copy">
                             <strong>{{ product.name }}</strong>
                             <small>{{ product.category }} · ৳ {{ "{:,}".format(product.price) }} · Stock {{ product.stock or 0 }}</small>
                         </span>
                         {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.slug in offer_product_slugs %}<span class="admin-status-badge is-active">Offer</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
-                    </summary>
-                    <form class="admin-product-form" action="{{ url_for('admin_update_product', slug=product.slug) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <label>Product name<input name="name" maxlength="120" value="{{ product.name }}" required></label>
-                        <label>Product slug<input name="slug" value="{{ product.slug }}" readonly></label>
-                        <label>Category<input name="category" maxlength="80" value="{{ product.category }}" required></label>
-                        <label>Store visibility<select name="show_in_catalog"><option value="1" {% if product.show_in_catalog %}selected{% endif %}>Main catalog</option><option value="0" {% if not product.show_in_catalog %}selected{% endif %}>Auction only</option></select></label>
-                        <label>Price (৳)<input name="price" type="number" min="1" value="{{ product.price }}" required></label>
-                        <label>Previous price (৳)<input name="old_price" type="number" min="1" value="{{ product.old_price or '' }}"></label>
-                        <label>Stock<input name="stock" type="number" min="0" max="1000000" value="{{ product.stock or 0 }}" required></label>
-                        <label>Static image path<input name="image" value="{{ product.image or '' }}"></label>
-                        <label>Icon (if no image)<input name="icon" maxlength="8" value="{{ product.icon or '' }}"></label>
-                        <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required>{{ product.description }}</textarea></label>
-                        <label class="admin-field-wide">Features, comma separated<input name="features" value="{{ product.features_text }}"></label>
-                        <div class="admin-form-actions">
-                            <button class="admin-action-primary" type="submit">Save product</button>
-                        </div>
-                    </form>
-                    <form class="admin-inline-action" action="{{ url_for('admin_set_product_status', slug=product.slug, action='archive' if product.is_active else 'restore') }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button class="admin-action-secondary" type="submit">{{ "Archive product" if product.is_active else "Restore product" }}</button>
-                    </form>
-                </details>
+                    </div>
+                    <div class="admin-product-card-actions">
+                        <button class="admin-action-secondary admin-product-edit-button" type="button"
+                            data-slug="{{ product.slug }}"
+                            data-name="{{ product.name }}"
+                            data-category="{{ product.category }}"
+                            data-description="{{ product.description }}"
+                            data-price="{{ product.price }}"
+                            data-old-price="{{ product.old_price or '' }}"
+                            data-stock="{{ product.stock or 0 }}"
+                            data-features="{{ product.features_text }}"
+                            data-image="{{ product.image or '' }}"
+                            data-icon="{{ product.icon or '' }}"
+                            data-show-in-catalog="{{ 1 if product.show_in_catalog else 0 }}">Edit product</button>
+                        <form class="admin-inline-action" action="{{ url_for('admin_set_product_status', slug=product.slug, action='archive' if product.is_active else 'restore') }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="admin-action-secondary" type="submit">{{ "Archive product" if product.is_active else "Restore product" }}</button>
+                        </form>
+                    </div>
+                </article>
                 {% else %}
                 <p class="admin-empty-note">No products have been added yet.</p>
                 {% endfor %}
             </div>
+            <script>
+                (function() {
+                    const form = document.getElementById("adminProductForm");
+                    if (!form) return;
+                    const heading = document.getElementById("productFormHeading");
+                    const submit = document.getElementById("productSubmitButton");
+                    const cancel = document.getElementById("productCancelEdit");
+                    const imageInput = form.elements.image;
+                    const preview = document.getElementById("productImagePreview");
+
+                    function resetProductForm() {
+                        form.reset();
+                        form.action = "{{ url_for('admin_create_product') }}";
+                        form.elements.slug.readOnly = false;
+                        form.elements.existing_slug.value = "";
+                        imageInput.required = true;
+                        heading.textContent = "Add a product";
+                        submit.textContent = "Publish product";
+                        cancel.hidden = true;
+                        preview.hidden = true;
+                        preview.textContent = "";
+                    }
+
+                    document.querySelectorAll(".admin-product-edit-button").forEach(function(button) {
+                        button.addEventListener("click", function() {
+                            form.elements.name.value = button.dataset.name;
+                            form.elements.slug.value = button.dataset.slug;
+                            form.elements.slug.readOnly = true;
+                            form.elements.existing_slug.value = button.dataset.slug;
+                            form.elements.category.value = button.dataset.category;
+                            form.elements.description.value = button.dataset.description;
+                            form.elements.price.value = button.dataset.price;
+                            form.elements.old_price.value = button.dataset.oldPrice;
+                            form.elements.stock.value = button.dataset.stock;
+                            form.elements.features.value = button.dataset.features;
+                            form.elements.show_in_catalog.value = button.dataset.showInCatalog;
+                            form.action = `/admin/products/${button.dataset.slug}/update`;
+                            imageInput.required = false;
+                            heading.textContent = `Edit product: ${button.dataset.name}`;
+                            submit.textContent = "Save product";
+                            cancel.hidden = false;
+                            preview.hidden = !button.dataset.image && !button.dataset.icon;
+                            preview.textContent = button.dataset.image
+                                ? `Current image: ${button.dataset.image}`
+                                : button.dataset.icon ? `Current icon: ${button.dataset.icon}` : "";
+                            form.closest("details").open = true;
+                            form.scrollIntoView({ behavior: "smooth", block: "center" });
+                        });
+                    });
+
+                    cancel.addEventListener("click", resetProductForm);
+                })();
+            </script>
         </section>
 
         <section class="admin-dashboard-section" id="orders">
@@ -179,48 +233,109 @@
                 <span>{{ auctions|selectattr("is_active")|list|length }} active</span>
             </div>
             <details class="admin-create-panel">
-                <summary>Create an auction</summary>
-                <form class="admin-product-form admin-auction-form" action="{{ url_for('admin_create_auction') }}" method="post">
+                <summary id="auctionFormHeading">Create an auction</summary>
+                <form class="admin-product-form admin-auction-form" id="adminAuctionForm" action="{{ url_for('admin_create_auction') }}" method="post">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label class="admin-field-wide">Product
                         <select name="product_slug" required>
-                            <option value="">Choose an active product</option>
+                            <option value="" selected disabled>Choose a product</option>
                             {% for product in auction_products %}<option value="{{ product.slug }}">{{ product.name }}</option>{% endfor %}
                         </select>
                     </label>
                     <label>Starting bid (৳)<input name="starting_bid" type="number" min="1" required></label>
-                    <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" value="100" required></label>
-                    <label>Duration (days)<input name="duration_days" type="number" min="1" max="90" value="7" required></label>
-                    <div class="admin-form-actions"><button class="admin-action-primary" type="submit" {% if not auction_products %}disabled{% endif %}>Publish auction</button></div>
+                    <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" required></label>
+                    <label id="auctionDurationLabel">Duration (days)<input name="duration_days" type="number" min="1" max="90" required></label>
+                    <div class="admin-form-actions">
+                        <button class="admin-action-primary" id="auctionSubmitButton" type="submit" {% if not auction_products %}disabled{% endif %}>Publish auction</button>
+                        <button class="admin-action-secondary" id="auctionCancelEdit" type="button" hidden>Cancel edit</button>
+                    </div>
                 </form>
-                {% if not auction_products %}<p class="admin-help-text">Add a new product first; each product can have one auction listing.</p>{% endif %}
+                {% if not auction_products %}<p class="admin-help-text">Add a product to the catalog first, then select it here.</p>{% endif %}
             </details>
             <div class="admin-auction-list">
                 {% for auction in auctions %}
                 <article class="admin-auction-row">
                     <div><strong>{{ auction.name }}</strong><small>{{ auction.category }} · Current bid ৳ {{ "{:,}".format(auction.current_bid) }} · Ends {{ auction.ends_at|datetime }}</small></div>
+                    <button class="admin-action-secondary admin-auction-edit-button" type="button"
+                        data-slug="{{ auction.slug }}"
+                        data-name="{{ auction.name }}"
+                        data-starting-bid="{{ auction.starting_bid }}"
+                        data-minimum-increment="{{ auction.minimum_increment }}"
+                        data-is-active="{{ 1 if auction.is_active else 0 }}">Edit auction</button>
                     {% if auction.is_active %}
-                    <form class="admin-auction-edit" action="{{ url_for('admin_update_auction', slug=auction.slug) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" value="{{ auction.minimum_increment }}" required></label>
-                        <label>Extend by (days)<input name="duration_days" type="number" min="1" max="90" value="7" required></label>
-                        <button class="admin-action-primary" type="submit">Update auction</button>
-                    </form>
                     <form action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="admin-action-secondary" type="submit">Close auction</button>
                     </form>
                     {% else %}
                     <span class="admin-status-badge is-inactive">Closed</span>
-                    <form class="admin-auction-reopen" action="{{ url_for('admin_reopen_auction', slug=auction.slug) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <label>Reopen for (days)<input name="duration_days" type="number" min="1" max="90" value="7" required></label>
-                        <button class="admin-action-secondary" type="submit">Reopen auction</button>
-                    </form>
                     {% endif %}
                 </article>
                 {% else %}<p class="admin-empty-note">No auctions have been created yet.</p>{% endfor %}
             </div>
+            <script>
+                (function() {
+                    const form = document.getElementById("adminAuctionForm");
+                    if (!form) return;
+                    const heading = document.getElementById("auctionFormHeading");
+                    const submit = document.getElementById("auctionSubmitButton");
+                    const cancel = document.getElementById("auctionCancelEdit");
+                    const durationLabel = document.getElementById("auctionDurationLabel");
+
+                    function resetAuctionForm() {
+                        form.querySelectorAll('option[data-edit-only="true"]').forEach(function(option) {
+                            option.remove();
+                        });
+                        form.reset();
+                        form.action = "{{ url_for('admin_create_auction') }}";
+                        form.elements.product_slug.disabled = false;
+                        form.elements.starting_bid.disabled = false;
+                        form.elements.minimum_increment.disabled = false;
+                        form.elements.minimum_increment.required = true;
+                        durationLabel.firstChild.textContent = "Duration (days)";
+                        heading.textContent = "Create an auction";
+                        submit.textContent = "Publish auction";
+                        submit.disabled = {{ "true" if not auction_products else "false" }};
+                        cancel.hidden = true;
+                    }
+
+                    document.querySelectorAll(".admin-auction-edit-button").forEach(function(button) {
+                        button.addEventListener("click", function() {
+                            const isActive = button.dataset.isActive === "1";
+                            let productOption = Array.from(form.elements.product_slug.options).find(
+                                function(option) { return option.value === button.dataset.slug; }
+                            );
+                            if (!productOption) {
+                                productOption = new Option(button.dataset.name, button.dataset.slug);
+                                productOption.dataset.editOnly = "true";
+                                form.elements.product_slug.add(productOption);
+                            }
+                            form.elements.product_slug.value = button.dataset.slug;
+                            form.elements.product_slug.disabled = true;
+                            form.elements.starting_bid.value = button.dataset.startingBid;
+                            form.elements.starting_bid.disabled = true;
+                            form.elements.minimum_increment.value = button.dataset.minimumIncrement;
+                            form.elements.minimum_increment.disabled = !isActive;
+                            form.elements.minimum_increment.required = isActive;
+                            form.elements.duration_days.value = "";
+                            form.action = isActive
+                                ? `/admin/auctions/${button.dataset.slug}/update`
+                                : `/admin/auctions/${button.dataset.slug}/reopen`;
+                            durationLabel.firstChild.textContent = isActive
+                                ? "Set end time from now (days)"
+                                : "Reopen for (days)";
+                            heading.textContent = `${isActive ? "Edit" : "Reopen"} auction: ${button.dataset.name}`;
+                            submit.textContent = isActive ? "Save auction" : "Reopen auction";
+                            submit.disabled = false;
+                            cancel.hidden = false;
+                            form.closest("details").open = true;
+                            form.scrollIntoView({ behavior: "smooth", block: "center" });
+                        });
+                    });
+
+                    cancel.addEventListener("click", resetAuctionForm);
+                })();
+            </script>
         </section>
 
         <section class="admin-dashboard-section" id="offers">

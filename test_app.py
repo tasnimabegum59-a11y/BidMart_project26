@@ -740,16 +740,54 @@ class AuthenticationFlowTests(unittest.TestCase):
             "slug": "test-desk-light",
             "category": "Home",
             "description": "A test product for dashboard management.",
-            "image": "products/digital-camera.svg",
-            "icon": "",
             "price": "1500",
             "old_price": "1800",
             "stock": "5",
             "features": "Compact, Bright",
         }
-        created = self.client.post("/admin/products/create", data=product_values)
+        created = self.client.post(
+            "/admin/products/create",
+            data={
+                **product_values,
+                "image": (
+                    io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24),
+                    "desk-light.png",
+                    "image/png",
+                ),
+            },
+            content_type="multipart/form-data",
+        )
         self.assertEqual(created.status_code, 302)
         self.assertIn(b"Test Desk Light", self.client.get("/products").data)
+
+        dashboard = self.client.get("/admin/dashboard")
+        self.assertEqual(dashboard.data.count(b'id="adminProductForm"'), 1)
+        self.assertEqual(dashboard.data.count(b'id="adminAuctionForm"'), 1)
+        self.assertNotIn(b"Static image path", dashboard.data)
+        self.assertNotIn(b'name="minimum_increment" type="number" min="1" value="100"', dashboard.data)
+        self.assertNotIn(b'name="duration_days" type="number" min="1" max="90" value="7"', dashboard.data)
+        with bidmart.database() as connection:
+            product_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'test-desk-light'"
+            ).fetchone()["image"]
+        self.assertTrue(product_image.startswith("uploads/products/"))
+
+        second_product = self.client.post(
+            "/admin/products/create",
+            data={
+                **product_values,
+                "name": "Second Test Product",
+                "slug": "second-test-product",
+                "image": (
+                    io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24),
+                    "second-product.png",
+                    "image/png",
+                ),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(second_product.status_code, 302)
+        self.assertIn(b"Second Test Product", self.client.get("/products").data)
 
         update_values = {**product_values, "price": "1400", "stock": "4"}
         updated = self.client.post("/admin/products/test-desk-light/update", data=update_values)
@@ -760,6 +798,11 @@ class AuthenticationFlowTests(unittest.TestCase):
                 "SELECT stock FROM product_inventory WHERE product_slug = 'test-desk-light'"
             ).fetchone()["stock"]
         self.assertEqual(stock, 4)
+        with bidmart.database() as connection:
+            retained_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'test-desk-light'"
+            ).fetchone()["image"]
+        self.assertEqual(retained_image, product_image)
 
         offer_end = time.strftime("%Y-%m-%dT%H:%M", time.gmtime(time.time() + 86400))
         created_offer = self.client.post("/admin/offers/create", data={
@@ -868,6 +911,12 @@ class AuthenticationFlowTests(unittest.TestCase):
             "/admin/offers/second-test-offer/delete", data={"csrf_token": csrf}
         )
         (bidmart.ROOT / "static" / second_image).unlink()
+        (bidmart.ROOT / "static" / product_image).unlink()
+        with bidmart.database() as connection:
+            second_product_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'second-test-product'"
+            ).fetchone()["image"]
+        (bidmart.ROOT / "static" / second_product_image).unlink()
 
         created_auction = self.client.post("/admin/auctions/create", data={
             "csrf_token": csrf,

@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 venv/
 static/uploads/offers/
+static/uploads/products/
