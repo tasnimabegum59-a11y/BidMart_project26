@@ -659,6 +659,7 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="profile-trigger-role">User</span>', response.data)
                 self.assertIn(b'class="notification-bell"', response.data)
                 self.assertIn(b'href="/notifications"', response.data)
+                self.assertIn(b'href="/my-orders"', response.data)
                 self.assertNotIn(b'class="superadmin-notifications"', response.data)
                 self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
                 self.assertIn(active_link, response.data)
@@ -777,6 +778,93 @@ class AuthenticationFlowTests(unittest.TestCase):
                 (admin.lastrowid,),
             ).fetchone()[0]
         self.assertEqual(admin_unread_count, 0)
+
+    def test_my_orders_shows_each_product_status_and_admin_update_notification(self):
+        self.assertEqual(self.start_checkout().status_code, 302)
+        checkout = self.client.get("/checkout")
+        placed = self.client.post(
+            "/checkout",
+            data=self.checkout_form(self.csrf_from(checkout), payment_method="cod"),
+        )
+        self.assertEqual(placed.status_code, 302)
+        with self.client.session_transaction() as session:
+            buyer_id = session["user_id"]
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT id, order_number FROM orders WHERE account_id = ?", (buyer_id,)
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO order_items (order_id, product_slug, product_name, quantity, unit_price) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (order["id"], "smart-watch-bluetooth-calling", "Smart Watch", 2, 2999),
+            )
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        with bidmart.database() as connection:
+            admin = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'admin', 1, ?)",
+                ("Store Admin", "order-status-admin@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = admin.lastrowid
+            session["user_email"] = "order-status-admin@example.invalid"
+            session["user_name"] = "Store Admin"
+
+        dashboard = self.client.get("/admin/dashboard")
+        updated = self.client.post(
+            f"/admin/orders/{order['id']}/status",
+            data={
+                "csrf_token": self.csrf_from(dashboard),
+                "order_status": "processing",
+            },
+        )
+        self.assertEqual(updated.status_code, 302)
+        with bidmart.database() as connection:
+            notification = connection.execute(
+                "SELECT id, title, message, target_url FROM notifications "
+                "WHERE account_id = ? AND title = 'Order status updated'",
+                (buyer_id,),
+            ).fetchone()
+        self.assertEqual(notification["target_url"], f"/my-orders#order-{order['order_number']}")
+        self.assertIn("processing", notification["message"])
+
+        with self.client.session_transaction() as session:
+            session["user_id"] = buyer_id
+            session["user_email"] = "checkout-buyer@example.invalid"
+            session["user_name"] = "Checkout Buyer"
+        notification_opened = self.client.get(
+            f"/notifications/{notification['id']}/open"
+        )
+        self.assertEqual(notification_opened.status_code, 302)
+        self.assertEqual(
+            notification_opened.headers["Location"],
+            f"/my-orders#order-{order['order_number']}",
+        )
+        my_orders = self.client.get("/my-orders")
+        self.assertEqual(my_orders.status_code, 200)
+        self.assertIn(order["order_number"].encode(), my_orders.data)
+        self.assertIn(b"Casual Sneakers", my_orders.data)
+        self.assertIn(b"Smart Watch", my_orders.data)
+        self.assertIn(b"Current step: Processing", my_orders.data)
+        self.assertIn(b'href="/my-orders"', my_orders.data)
+
+        with bidmart.database() as connection:
+            other_user = connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, '', ?, 'user', 1, ?)",
+                ("Other User", "other-order-user@example.invalid",
+                 generate_password_hash("secure-password"), 1),
+            )
+        with self.client.session_transaction() as session:
+            session["user_id"] = other_user.lastrowid
+            session["user_email"] = "other-order-user@example.invalid"
+            session["user_name"] = "Other User"
+        other_orders = self.client.get("/my-orders")
+        self.assertEqual(other_orders.status_code, 200)
+        self.assertNotIn(order["order_number"].encode(), other_orders.data)
 
     def test_my_profile_updates_account_details_and_password_for_any_user(self):
         self.assertEqual(self.client.get("/profile").status_code, 403)

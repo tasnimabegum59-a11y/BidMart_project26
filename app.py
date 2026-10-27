@@ -476,6 +476,10 @@ def initialize_database():
         if "stock_reserved" not in order_columns:
             connection.execute("ALTER TABLE orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 0")
         connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_account_created "
+            "ON orders(account_id, created_at DESC)"
+        )
+        connection.execute(
             """CREATE TABLE IF NOT EXISTS order_items (
                 id INTEGER PRIMARY KEY,
                 order_id INTEGER NOT NULL REFERENCES orders(id),
@@ -701,6 +705,65 @@ def mark_all_notifications_read():
         )
     flash("All notifications marked as read.", "success")
     return redirect(url_for("notifications_page"))
+
+
+@app.get("/my-orders")
+def my_orders_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        abort(403)
+    with database() as connection:
+        rows = connection.execute(
+            """SELECT orders.id AS order_id, orders.order_number, orders.created_at,
+            orders.subtotal, orders.delivery_fee, orders.discount, orders.total,
+            orders.coupon_code, orders.payment_method, orders.payment_status,
+            orders.order_status, order_items.id AS item_id, order_items.product_name,
+            order_items.product_slug, order_items.quantity, order_items.unit_price
+            FROM orders LEFT JOIN order_items ON order_items.order_id = orders.id
+            WHERE orders.account_id = ?
+            ORDER BY orders.created_at DESC, orders.id DESC, order_items.id""",
+            (account_id,),
+        ).fetchall()
+
+    orders_by_id = {}
+    status_indexes = {
+        "confirmed": 0,
+        "processing": 1,
+        "shipped": 2,
+        "delivered": 3,
+    }
+    for row in rows:
+        order = orders_by_id.get(row["order_id"])
+        if order is None:
+            order = {
+                "id": row["order_id"],
+                "order_number": row["order_number"],
+                "created_at": row["created_at"],
+                "subtotal": row["subtotal"],
+                "delivery_fee": row["delivery_fee"],
+                "discount": row["discount"],
+                "total": row["total"],
+                "coupon_code": row["coupon_code"],
+                "payment_method": row["payment_method"],
+                "payment_status": row["payment_status"],
+                "order_status": row["order_status"],
+                "status_index": status_indexes.get(row["order_status"], -1),
+                "items": [],
+            }
+            orders_by_id[row["order_id"]] = order
+        if row["item_id"] is not None:
+            order["items"].append({
+                "name": row["product_name"],
+                "slug": row["product_slug"],
+                "quantity": row["quantity"],
+                "unit_price": row["unit_price"],
+            })
+
+    return render_template(
+        "my_orders.html",
+        orders=list(orders_by_id.values()),
+        active_page="my_orders",
+    )
 
 
 @app.template_filter("datetime")
@@ -1140,7 +1203,7 @@ def complete_sslcommerz_payment(tran_id, val_id):
             message = f"Payment received for order {order['order_number']}. Your order is confirmed."
             create_notification(
                 connection, order["account_id"], "Payment confirmed", message,
-                url_for("notifications_page"),
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
             )
             notify_staff(
                 connection, "Order payment received",
@@ -1185,7 +1248,7 @@ def release_expired_online_orders(connection, now):
                 order["account_id"],
                 "Payment session expired",
                 f"The payment window for order {order['order_number']} expired. Please place the order again.",
-                url_for("notifications_page"),
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
                 now,
             )
             notify_staff(
@@ -1235,7 +1298,7 @@ def sslcommerz_fail():
             create_notification(
                 connection, order["account_id"], "Payment failed",
                 f"Payment for order {order['order_number']} was not completed. You can try checkout again.",
-                url_for("notifications_page"),
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
             )
             notify_staff(
                 connection, "Order payment failed",
@@ -1478,7 +1541,7 @@ def place_checkout_order():
             f"Order {order_number} was placed. "
             + ("It is confirmed and awaiting payment on delivery."
                if payment_method == "cod" else "Complete payment to confirm your order."),
-            url_for("notifications_page"),
+            url_for("my_orders_page", _anchor=f"order-{order_number}"),
             now,
         )
         notify_staff(
@@ -2868,7 +2931,7 @@ def admin_update_order_status(order_id):
                 order["account_id"],
                 "Order status updated",
                 f"Order {order['order_number']} is now {requested_status}.",
-                url_for("notifications_page"),
+                url_for("my_orders_page", _anchor=f"order-{order['order_number']}"),
             )
             notify_superadmins(
                 connection,

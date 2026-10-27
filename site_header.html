@@ -123,9 +123,9 @@
             <a class="dashboard-item{% if active_page == 'products' %} is-active{% endif %}" href="{{ url_for('products_page') }}"{% if active_page == "products" %} aria-current="page"{% endif %}>
                 <span aria-hidden="true">▣</span> My Products
             </a>
-            <span class="dashboard-item is-unavailable" aria-disabled="true">
-                <span aria-hidden="true">▤</span> My Orders <small>Coming soon</small>
-            </span>
+            <a class="dashboard-item{% if active_page == 'my_orders' %} is-active{% endif %}" href="{{ url_for('my_orders_page') }}"{% if active_page == "my_orders" %} aria-current="page"{% endif %}>
+                <span aria-hidden="true">▤</span> My Orders
+            </a>
             {% endif %}
             <span class="dashboard-item is-unavailable" aria-disabled="true">
                 <span aria-hidden="true">↗</span> Analytics <small>Coming soon</small>

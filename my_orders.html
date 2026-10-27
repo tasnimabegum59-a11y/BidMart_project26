@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="View your BidMart orders and delivery progress.">
+    <title>My Orders | BidMart</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
+</head>
+<body>
+    {% include "site_header.html" %}
+    <main class="my-orders-page">
+        <div class="page-container">
+            <header class="my-orders-heading">
+                <p class="eyebrow">YOUR PURCHASES</p>
+                <h1>My Orders</h1>
+                <p>See every product you ordered and follow its latest delivery step.</p>
+            </header>
+
+            <section class="my-orders-list" aria-label="Your orders">
+                {% for order in orders %}
+                <article class="my-order-card" id="order-{{ order.order_number }}">
+                    <header class="my-order-header">
+                        <div>
+                            <p class="eyebrow">ORDER</p>
+                            <h2>{{ order.order_number }}</h2>
+                            <time datetime="{{ order.created_at|datetime }}">{{ order.created_at|datetime }}</time>
+                        </div>
+                        <div class="my-order-summary">
+                            <span class="my-order-status is-{{ order.order_status }}">
+                                {% if order.order_status == "pending" %}Payment pending{% else %}{{ order.order_status|title }}{% endif %}
+                            </span>
+                            <span>{{ order.payment_status|title }} · ৳ {{ "{:,}".format(order.total) }}</span>
+                        </div>
+                    </header>
+
+                    {% if order.order_status == "pending" %}
+                    <p class="my-order-payment-note">Order fulfilment progress will begin after payment is confirmed.</p>
+                    {% endif %}
+
+                    <div class="my-order-items">
+                        {% for item in order["items"] %}
+                        <article class="my-order-item">
+                            <div class="my-order-item-heading">
+                                <div>
+                                    <h3>{{ item.name }}</h3>
+                                    <p>Quantity {{ item.quantity }} · ৳ {{ "{:,}".format(item.unit_price) }} each</p>
+                                </div>
+                                <strong>৳ {{ "{:,}".format(item.unit_price * item.quantity) }}</strong>
+                            </div>
+                            <div class="my-order-item-progress">
+                                <span>Current step: {% if order.order_status == "pending" %}Payment pending{% else %}{{ order.order_status|title }}{% endif %}</span>
+                                <ol aria-label="Delivery progress for {{ item.name }}">
+                                    {% for step in ("Confirmed", "Processing", "Shipped", "Delivered") %}
+                                    <li class="{% if order.status_index == loop.index0 %}is-current{% elif order.status_index > loop.index0 %}is-complete{% endif %}">
+                                        <span aria-hidden="true">{% if order.status_index > loop.index0 %}✓{% else %}{{ loop.index }}{% endif %}</span>
+                                        <span>{{ step }}</span>
+                                    </li>
+                                    {% endfor %}
+                                </ol>
+                            </div>
+                        </article>
+                        {% else %}
+                        <p class="my-order-empty-items">No product details are available for this order.</p>
+                        {% endfor %}
+                    </div>
+
+                    <footer class="my-order-footer">
+                        <span>{{ order.payment_method|upper }} payment{% if order.coupon_code %} · Discount {{ order.coupon_code }}{% endif %}</span>
+                        <strong>Order total: ৳ {{ "{:,}".format(order.total) }}</strong>
+                    </footer>
+                </article>
+                {% else %}
+                <div class="my-orders-empty">
+                    <span aria-hidden="true">▤</span>
+                    <h2>No orders yet</h2>
+                    <p>Products you order will appear here with their delivery progress.</p>
+                    <a class="order-continue-link" href="{{ url_for('products_page') }}">Browse products</a>
+                </div>
+                {% endfor %}
+            </section>
+        </div>
+    </main>
+</body>
+</html>
