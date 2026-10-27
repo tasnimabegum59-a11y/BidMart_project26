@@ -657,6 +657,8 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b'class="container navbar"', response.data)
                 self.assertIn(b'id="profileTrigger"', response.data)
                 self.assertIn(b'class="profile-trigger-role">User</span>', response.data)
+                self.assertIn(b'class="notification-bell"', response.data)
+                self.assertIn(b'href="/notifications"', response.data)
                 self.assertNotIn(b'class="superadmin-notifications"', response.data)
                 self.assertIn(b'aria-label="Open dashboard for Test Account"', response.data)
                 self.assertIn(active_link, response.data)
