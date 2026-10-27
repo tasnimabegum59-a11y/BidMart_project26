@@ -100,7 +100,7 @@
                             <strong>{{ product.name }}</strong>
                             <small>{{ product.category }} · ৳ {{ "{:,}".format(product.price) }} · Stock {{ product.stock or 0 }}</small>
                         </span>
-                        {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
+                        {% if not product.is_active %}<span class="admin-status-badge is-inactive">Archived</span>{% elif product.slug in offer_product_slugs %}<span class="admin-status-badge is-active">Offer</span>{% elif product.show_in_catalog %}<span class="admin-status-badge is-active">Catalog</span>{% else %}<span class="admin-status-badge">Auction only</span>{% endif %}
                     </summary>
                     <form class="admin-product-form" action="{{ url_for('admin_update_product', slug=product.slug) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -229,43 +229,129 @@
                 <a class="catalog-management-link" href="{{ url_for('offers_page') }}">View offers page</a>
             </div>
             <details class="admin-create-panel">
-                <summary>Create an offer</summary>
-                <form class="admin-product-form" action="{{ url_for('admin_create_offer') }}" method="post">
+                <summary id="offerFormHeading">Add a new offer product</summary>
+                <form class="admin-product-form admin-offer-form" id="adminOfferForm" action="{{ url_for('admin_create_offer') }}" method="post" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <label class="admin-field-wide">Product
-                        <select name="product_slug" required>
-                            <option value="">Choose an active catalog product</option>
-                            {% for product in available_offer_products %}<option value="{{ product.slug }}">{{ product.name }}</option>{% endfor %}
-                        </select>
-                    </label>
-                    <label>Offer title<input name="title" maxlength="120" required placeholder="Summer audio deals"></label>
+                    <input type="hidden" name="existing_slug" value="">
+                    <label>Product name<input name="name" maxlength="120" required></label>
+                    <label>Product slug<input name="slug" placeholder="summer-headphones" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+                    <label>Category<input name="category" maxlength="80" required></label>
+                    <label>Offer title<input name="title" maxlength="120" required placeholder="Summer audio deal"></label>
                     <label>Status<select name="is_active"><option value="1" selected>Active</option><option value="0">Paused</option></select></label>
-                    <label class="admin-field-wide">Description<textarea name="description" maxlength="500" rows="2" required></textarea></label>
+                    <label>Main price (৳)<input name="main_price" type="number" min="2" required></label>
+                    <label>Offer price (৳)<input name="offer_price" type="number" min="1" required></label>
+                    <label>Stock<input name="stock" type="number" min="0" max="1000000" required></label>
+                    <label>Discount percentage<output id="offerDiscountPreview">Enter both prices</output></label>
+                    <label>Product image<input name="image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
                     <label>Ends at (UTC)<input name="ends_at" type="datetime-local" required></label>
-                    <div class="admin-form-actions"><button class="admin-action-primary" type="submit" {% if not available_offer_products %}disabled{% endif %}>Publish offer</button></div>
+                    <label class="admin-field-wide">Product description<textarea name="product_description" maxlength="1000" rows="3" required></textarea></label>
+                    <label class="admin-field-wide">Offer description<textarea name="description" maxlength="500" rows="2" required></textarea></label>
+                    <label class="admin-field-wide">Features, comma separated<input name="features" maxlength="1000" placeholder="Fast delivery, 1-year warranty"></label>
+                    <div class="admin-offer-image-preview" id="offerImagePreview" hidden></div>
+                    <div class="admin-form-actions">
+                        <button class="admin-action-primary" id="offerSubmitButton" type="submit">Publish offer product</button>
+                        <button class="admin-action-secondary" id="offerCancelEdit" type="button" hidden>Cancel edit</button>
+                    </div>
                 </form>
-                {% if not available_offer_products %}<p class="admin-help-text">Add a catalog product first; each product can have one offer listing.</p>{% endif %}
             </details>
-            <div class="admin-auction-list">
+            <div class="admin-offer-list">
                 {% for offer in offers %}
-                <article class="admin-auction-row">
-                    <div><strong>{{ offer.title }}</strong><small>{{ offer.name }} · ৳ {{ "{:,}".format(offer.price) }}{% if offer.old_price %} (was ৳ {{ "{:,}".format(offer.old_price) }}){% endif %} · Ends {{ offer.ends_at|datetime }}</small></div>
-                    <form class="admin-product-form admin-offer-edit" action="{{ url_for('admin_update_offer', offer_id=offer.id) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <label>Product<select name="product_slug" required>{% for product in products if product.is_active and product.show_in_catalog %}<option value="{{ product.slug }}" {% if product.slug == offer.product_slug %}selected{% endif %}>{{ product.name }}</option>{% endfor %}</select></label>
-                        <label>Title<input name="title" maxlength="120" value="{{ offer.title }}" required></label>
-                        <label>Status<select name="is_active"><option value="1" {% if offer.is_active %}selected{% endif %}>Active</option><option value="0" {% if not offer.is_active %}selected{% endif %}>Paused</option></select></label>
-                        <label>Description<input name="description" maxlength="500" value="{{ offer.description }}" required></label>
-                        <label>Ends at (UTC)<input name="ends_at" type="datetime-local" value="{{ offer.ends_at_input }}" required></label>
-                        <button class="admin-action-primary" type="submit">Save offer</button>
-                    </form>
-                    <form action="{{ url_for('admin_delete_offer', offer_id=offer.id) }}" method="post">
+                <article class="admin-offer-row">
+                    {% if offer.image %}<img src="{{ url_for('static', filename=offer.image) }}" alt="" class="admin-offer-thumbnail">{% endif %}
+                    <div class="admin-offer-summary">
+                        <strong>{{ offer.name }} · {{ offer.discount_percent }}% OFF</strong>
+                        <small>{{ offer.category }} · ৳ {{ "{:,}".format(offer.old_price) }} → ৳ {{ "{:,}".format(offer.price) }} · Stock {{ offer.stock or 0 }} · Ends {{ offer.ends_at|datetime }}</small>
+                        <small>{{ offer.title }} · {{ "Active" if offer.is_active else "Paused" }}</small>
+                    </div>
+                    <button class="admin-action-secondary admin-offer-edit-button" type="button"
+                        data-offer-id="{{ offer.id }}"
+                        data-slug="{{ offer.product_slug }}"
+                        data-name="{{ offer.name }}"
+                        data-category="{{ offer.category }}"
+                        data-title="{{ offer.title }}"
+                        data-description="{{ offer.description }}"
+                        data-product-description="{{ offer.product_description }}"
+                        data-main-price="{{ offer.old_price }}"
+                        data-offer-price="{{ offer.price }}"
+                        data-stock="{{ offer.stock or 0 }}"
+                        data-features="{{ offer.features_text }}"
+                        data-ends-at="{{ offer.ends_at_input }}"
+                        data-image="{{ offer.image or '' }}"
+                        data-is-active="{{ offer.is_active }}">Edit</button>
+                    <form action="{{ url_for('admin_delete_offer', slug=offer.product_slug) }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="admin-action-secondary" type="submit">Remove offer</button>
                     </form>
                 </article>
-                {% else %}<p class="admin-empty-note">No offers have been created yet.</p>{% endfor %}
+                {% else %}<p class="admin-empty-note">No offer products yet. Use the form above to add your first offer.</p>{% endfor %}
             </div>
+            <script>
+                (function() {
+                    const form = document.getElementById("adminOfferForm");
+                    if (!form) return;
+                    const heading = document.getElementById("offerFormHeading");
+                    const submit = document.getElementById("offerSubmitButton");
+                    const cancel = document.getElementById("offerCancelEdit");
+                    const imageInput = form.elements.image;
+                    const preview = document.getElementById("offerImagePreview");
+                    const discountPreview = document.getElementById("offerDiscountPreview");
+
+                    function resetOfferForm() {
+                        form.reset();
+                        form.action = "{{ url_for('admin_create_offer') }}";
+                        form.elements.slug.readOnly = false;
+                        form.elements.existing_slug.value = "";
+                        imageInput.required = true;
+                        heading.textContent = "Add a new offer product";
+                        submit.textContent = "Publish offer product";
+                        cancel.hidden = true;
+                        preview.hidden = true;
+                        preview.textContent = "";
+                        discountPreview.textContent = "Enter both prices";
+                    }
+
+                    function updateDiscount() {
+                        const main = Number(form.elements.main_price.value);
+                        const price = Number(form.elements.offer_price.value);
+                        discountPreview.textContent = main > 0 && price > 0 && price < main
+                            ? `${Math.round((main - price) / main * 100)}% OFF`
+                            : "Offer price must be lower";
+                    }
+
+                    document.querySelectorAll(".admin-offer-edit-button").forEach(function(button) {
+                        button.addEventListener("click", function() {
+                            form.elements.name.value = button.dataset.name;
+                            form.elements.slug.value = button.dataset.slug;
+                            form.elements.slug.readOnly = true;
+                            form.elements.existing_slug.value = button.dataset.slug;
+                            form.elements.category.value = button.dataset.category;
+                            form.elements.title.value = button.dataset.title;
+                            form.elements.description.value = button.dataset.description;
+                            form.elements.product_description.value = button.dataset.productDescription;
+                            form.elements.main_price.value = button.dataset.mainPrice;
+                            form.elements.offer_price.value = button.dataset.offerPrice;
+                            form.elements.stock.value = button.dataset.stock;
+                            form.elements.features.value = button.dataset.features;
+                            form.elements.ends_at.value = button.dataset.endsAt;
+                            form.elements.is_active.value = button.dataset.isActive;
+                            form.action = `/admin/offers/${button.dataset.offerId}/update`;
+                            imageInput.required = false;
+                            heading.textContent = `Edit offer product: ${button.dataset.name}`;
+                            submit.textContent = "Save offer product";
+                            cancel.hidden = false;
+                            preview.hidden = !button.dataset.image;
+                            preview.textContent = button.dataset.image ? `Current image: ${button.dataset.image}` : "";
+                            updateDiscount();
+                            form.closest("details").open = true;
+                            form.scrollIntoView({ behavior: "smooth", block: "center" });
+                        });
+                    });
+
+                    form.elements.main_price.addEventListener("input", updateDiscount);
+                    form.elements.offer_price.addEventListener("input", updateDiscount);
+                    cancel.addEventListener("click", resetOfferForm);
+                })();
+            </script>
         </section>
 
         {% if is_superadmin %}

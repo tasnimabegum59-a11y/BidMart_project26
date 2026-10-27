@@ -38,19 +38,25 @@
                     <div class="auction-list-content">
                         <p class="category">{{ offer.category }}</p>
                         <h2>{{ offer.title }}</h2>
-                        <p class="auction-list-description">{{ offer.description }}</p>
+                        <p class="offer-promo-description">{{ offer.description }}</p>
+                        <p class="auction-list-description">{{ offer.product_description }}</p>
                         <p class="offer-product-name">{{ offer.name }}</p>
+                        {% if offer.features %}
+                        <ul class="offer-features">
+                            {% for feature in offer.features %}<li>{{ feature }}</li>{% endfor %}
+                        </ul>
+                        {% endif %}
                         <div class="auction-list-prices">
                             <div>
                                 <span>Offer price</span>
                                 <strong class="auction-list-current">৳ {{ "{:,}".format(offer.price) }}</strong>
                             </div>
                             <div>
-                                <span>{% if offer.old_price %}Previous price{% else %}Offer status{% endif %}</span>
+                                <span>Main price</span>
                                 {% if offer.old_price %}
                                 <strong class="auction-list-original">৳ {{ "{:,}".format(offer.old_price) }}</strong>
                                 {% else %}
-                                <strong>Limited time</strong>
+                                <strong>৳ {{ "{:,}".format(offer.price) }}</strong>
                                 {% endif %}
                             </div>
                         </div>

@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 
 ROOT = Path(__file__).resolve().parent
@@ -255,6 +256,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+    MAX_CONTENT_LENGTH=8 * 1024 * 1024,
 )
 logging.basicConfig(level=logging.INFO)
 
@@ -393,9 +395,6 @@ def initialize_database():
             connection.execute(
                 "ALTER TABLE catalog_products ADD COLUMN show_in_catalog INTEGER NOT NULL DEFAULT 1"
             )
-        offers_table_exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'offers'"
-        ).fetchone() is not None
         connection.execute(
             """CREATE TABLE IF NOT EXISTS offers (
             id INTEGER PRIMARY KEY,
@@ -517,21 +516,12 @@ def initialize_database():
                 "WHERE slug = ? AND starting_bid = 0",
                 (listing["starting_bid"], listing["minimum_increment"], listing["slug"]),
             )
-        if not offers_table_exists:
-            for slug, title, description in (
-                ("jbl-wireless-headphones", "JBL Headphones · 40% OFF", "Wireless over-ear sound with a special launch price."),
-                ("smart-watch-bluetooth-calling", "Smart Watch · 25% OFF", "Stay connected and track your everyday activity."),
-                ("wireless-earbuds", "Wireless Earbuds · 26% OFF", "Compact earbuds with touch controls and a charging case."),
-            ):
-                connection.execute(
-                    """INSERT OR IGNORE INTO offers
-                    (product_slug, title, description, ends_at, is_active)
-                    SELECT ?, ?, ?, ?, 1 WHERE EXISTS (
-                        SELECT 1 FROM catalog_products
-                        WHERE slug = ? AND is_active = 1 AND show_in_catalog = 1
-                    )""",
-                    (slug, title, description, now + 30 * 86400, slug),
-                )
+        connection.execute(
+            "DELETE FROM offers WHERE (product_slug, title) IN "
+            "(('jbl-wireless-headphones', 'JBL Headphones · 40% OFF'), "
+            "('smart-watch-bluetooth-calling', 'Smart Watch · 25% OFF'), "
+            "('wireless-earbuds', 'Wireless Earbuds · 26% OFF'))"
+        )
 
 
 initialize_database()
@@ -1625,10 +1615,15 @@ def get_products(include_inactive=False):
 
 def get_product(slug, include_inactive=False):
     with database() as connection:
-        query = "SELECT * FROM catalog_products WHERE slug = ? AND show_in_catalog = 1"
+        query = (
+            "SELECT * FROM catalog_products WHERE slug = ? AND "
+            "(show_in_catalog = 1 OR EXISTS (SELECT 1 FROM offers "
+            "WHERE offers.product_slug = catalog_products.slug AND offers.is_active = 1 "
+            "AND offers.ends_at > ?))"
+        )
         if not include_inactive:
             query += " AND is_active = 1"
-        row = connection.execute(query, (slug,)).fetchone()
+        row = connection.execute(query, (slug, int(time.time()))).fetchone()
     if not row:
         return None
     product = dict(row)
@@ -1656,12 +1651,13 @@ def get_offer_listings(include_inactive=False):
     query = (
         "SELECT o.id, o.product_slug, o.title, o.description, o.ends_at, o.is_active, "
         "p.name, p.category, p.description AS product_description, p.image, p.icon, "
-        "p.price, p.old_price "
+        "p.price, p.old_price, p.features_json, i.stock "
         "FROM offers AS o JOIN catalog_products AS p ON p.slug = o.product_slug"
+        " LEFT JOIN product_inventory AS i ON i.product_slug = p.slug"
     )
     parameters = ()
     if not include_inactive:
-        query += " WHERE o.is_active = 1 AND o.ends_at > ? AND p.is_active = 1 AND p.show_in_catalog = 1"
+        query += " WHERE o.is_active = 1 AND o.ends_at > ? AND p.is_active = 1"
         parameters = (int(time.time()),)
     query += " ORDER BY o.ends_at, p.name COLLATE NOCASE"
     with database() as connection:
@@ -1674,6 +1670,8 @@ def get_offer_listings(include_inactive=False):
             round((old_price - offer["price"]) / old_price * 100)
             if old_price and old_price > offer["price"] else 0
         )
+        offer["features"] = json.loads(offer.pop("features_json"))
+        offer["features_text"] = ", ".join(offer["features"])
         offer["ends_at_input"] = datetime.fromtimestamp(
             offer["ends_at"], timezone.utc
         ).strftime("%Y-%m-%dT%H:%M")
@@ -1728,12 +1726,6 @@ def admin_dashboard():
             "LEFT JOIN auctions AS a ON a.slug = p.slug "
             "WHERE p.is_active = 1 AND a.slug IS NULL ORDER BY p.name COLLATE NOCASE"
         ).fetchall()
-        available_offer_products = connection.execute(
-            "SELECT p.slug, p.name FROM catalog_products AS p "
-            "LEFT JOIN offers AS o ON o.product_slug = p.slug "
-            "WHERE p.is_active = 1 AND p.show_in_catalog = 1 AND o.id IS NULL "
-            "ORDER BY p.name COLLATE NOCASE"
-        ).fetchall()
         role_row = connection.execute(
             "SELECT role FROM accounts WHERE id = ?", (staff_id,)
         ).fetchone()
@@ -1749,6 +1741,7 @@ def admin_dashboard():
         product = dict(row)
         product["features_text"] = ", ".join(json.loads(product.pop("features_json")))
         product_rows.append(product)
+    offers = get_offer_listings(include_inactive=True)
     return render_template(
         "admin_dashboard.html",
         products=product_rows,
@@ -1756,8 +1749,8 @@ def admin_dashboard():
         stats=stats,
         auctions=get_auction_listings(include_inactive=True),
         auction_products=auction_products,
-        offers=get_offer_listings(include_inactive=True),
-        available_offer_products=available_offer_products,
+        offers=offers,
+        offer_product_slugs={offer["product_slug"] for offer in offers},
         accounts=accounts,
         is_superadmin=bool(accounts) or role_row["role"] == "superadmin",
         current_user_email=session.get("user_email"),
@@ -1980,90 +1973,192 @@ def admin_reopen_auction(slug):
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
-def _admin_offer_values(form):
-    product_slug = form.get("product_slug", "").strip()
+def _admin_offer_values(form, image_file, existing_image=None):
+    name = form.get("name", "").strip()
+    slug = form.get("slug", "").strip().lower()
+    category = form.get("category", "").strip()
+    product_description = form.get("product_description", "").strip()
     title = form.get("title", "").strip()
     description = form.get("description", "").strip()
+    features = [part.strip() for part in form.get("features", "").split(",") if part.strip()]
     try:
+        main_price = int(form.get("main_price", ""))
+        offer_price = int(form.get("offer_price", ""))
+        stock = int(form.get("stock", ""))
         ends_at = int(datetime.strptime(
             form.get("ends_at", "").strip(), "%Y-%m-%dT%H:%M"
         ).replace(tzinfo=timezone.utc).timestamp())
     except (TypeError, ValueError):
-        return None, "Choose a valid offer end date and time (UTC)."
+        return None, "Enter valid prices, stock, and an offer end date and time (UTC)."
     now = int(time.time())
-    if not get_product(product_slug):
-        return None, "Choose an active catalog product for this offer."
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) or len(slug) > 100:
+        return None, "Use a product slug containing lowercase letters, numbers, and hyphens only."
+    if not name or len(name) > 120 or not category or len(category) > 80:
+        return None, "Enter a product name (up to 120 characters) and category (up to 80 characters)."
+    if not product_description or len(product_description) > 1000:
+        return None, "Enter a product description of up to 1,000 characters."
     if not title or len(title) > 120:
         return None, "Enter an offer title of up to 120 characters."
     if not description or len(description) > 500:
         return None, "Enter an offer description of up to 500 characters."
+    if main_price < 2 or offer_price < 1 or offer_price >= main_price:
+        return None, "The offer price must be positive and lower than the main price."
+    if stock < 0 or stock > 1_000_000:
+        return None, "Stock must be between 0 and 1,000,000."
+    if len(features) > 8 or any(len(feature) > 120 for feature in features):
+        return None, "Add at most 8 product features, each up to 120 characters."
     if not now < ends_at <= now + 365 * 86400:
         return None, "Offer end time must be in the next 365 days."
     if form.get("is_active", "1") not in ("0", "1"):
         return None, "Choose whether this offer is active or paused."
+    image_extension = None
+    if image_file and image_file.filename:
+        safe_name = secure_filename(image_file.filename)
+        if not safe_name:
+            return None, "Choose a valid product image file."
+        image_header = image_file.stream.read(12)
+        image_file.stream.seek(0)
+        if image_header.startswith(b"\x89PNG\r\n\x1a\n"):
+            image_extension = "png"
+        elif image_header.startswith(b"\xff\xd8\xff"):
+            image_extension = "jpg"
+        elif image_header.startswith(b"RIFF") and image_header[8:12] == b"WEBP":
+            image_extension = "webp"
+        else:
+            return None, "Upload a valid PNG, JPEG, or WebP product image."
+    elif not existing_image:
+        return None, "Upload a product image (PNG, JPEG, or WebP)."
+    with database() as connection:
+        existing_product = connection.execute(
+            "SELECT slug FROM catalog_products WHERE slug = ?", (slug,)
+        ).fetchone()
+    if existing_product and slug != form.get("existing_slug", ""):
+        return None, "That product slug is already in use. Choose a different slug."
     return {
-        "product_slug": product_slug,
+        "slug": slug,
+        "name": name,
+        "category": category,
+        "product_description": product_description,
         "title": title,
         "description": description,
         "ends_at": ends_at,
         "is_active": int(form.get("is_active", "1")),
+        "main_price": main_price,
+        "offer_price": offer_price,
+        "stock": stock,
+        "features_json": json.dumps(features),
+        "image_extension": image_extension,
     }, None
+
+
+def _save_offer_image(slug, image_file, extension):
+    if not image_file or not extension:
+        return None
+    upload_directory = ROOT / "static" / "uploads" / "offers"
+    upload_directory.mkdir(parents=True, exist_ok=True)
+    filename = f"{slug}-{secrets.token_hex(8)}.{extension}"
+    image_file.save(upload_directory / filename)
+    return f"uploads/offers/{filename}"
 
 
 @app.post("/admin/offers/create")
 def admin_create_offer():
     require_staff()
-    values, error = _admin_offer_values(request.form)
+    image_file = request.files.get("image")
+    values, error = _admin_offer_values(request.form, image_file)
     if error:
         flash(error, "error")
         return redirect(url_for("admin_dashboard") + "#offers")
+    image_path = _save_offer_image(values["slug"], image_file, values["image_extension"])
     try:
         with database() as connection:
             connection.execute(
+                """INSERT INTO catalog_products
+                (slug, name, category, description, image, price, old_price, features_json,
+                 is_active, show_in_catalog, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)""",
+                (values["slug"], values["name"], values["category"], values["product_description"],
+                 image_path, values["offer_price"], values["main_price"], values["features_json"],
+                 int(time.time())),
+            )
+            connection.execute(
+                "INSERT INTO product_inventory (product_slug, stock) VALUES (?, ?)",
+                (values["slug"], values["stock"]),
+            )
+            connection.execute(
                 "INSERT INTO offers (product_slug, title, description, ends_at, is_active) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (values["product_slug"], values["title"], values["description"],
+                (values["slug"], values["title"], values["description"],
                  values["ends_at"], values["is_active"]),
             )
     except sqlite3.IntegrityError:
-        flash("That product already has an offer listing.", "error")
+        if image_path:
+            (ROOT / "static" / image_path).unlink(missing_ok=True)
+        flash("That product slug is already in use. Choose a different slug.", "error")
         return redirect(url_for("admin_dashboard") + "#offers")
-    flash("Offer published.", "success")
+    flash("Offer product published.", "success")
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
 @app.post("/admin/offers/<int:offer_id>/update")
 def admin_update_offer(offer_id):
     require_staff()
-    values, error = _admin_offer_values(request.form)
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT o.product_slug, p.image FROM offers AS o "
+            "JOIN catalog_products AS p ON p.slug = o.product_slug WHERE o.id = ?",
+            (offer_id,),
+        ).fetchone()
+    if not existing:
+        abort(404)
+    if request.form.get("slug", "").strip().lower() != existing["product_slug"]:
+        flash("Product slugs cannot be changed after creation.", "error")
+        return redirect(url_for("admin_dashboard") + "#offers")
+    image_file = request.files.get("image")
+    values, error = _admin_offer_values(
+        request.form, image_file, existing_image=existing["image"]
+    )
     if error:
         flash(error, "error")
         return redirect(url_for("admin_dashboard") + "#offers")
-    try:
-        with database() as connection:
-            result = connection.execute(
-                "UPDATE offers SET product_slug = ?, title = ?, description = ?, ends_at = ?, "
-                "is_active = ? WHERE id = ?",
-                (values["product_slug"], values["title"], values["description"],
-                 values["ends_at"], values["is_active"], offer_id),
-            )
-    except sqlite3.IntegrityError:
-        flash("That product already has another offer listing.", "error")
-        return redirect(url_for("admin_dashboard") + "#offers")
-    if not result.rowcount:
-        abort(404)
-    flash("Offer updated.", "success")
+    image_path = _save_offer_image(values["slug"], image_file, values["image_extension"])
+    with database() as connection:
+        connection.execute(
+            "UPDATE offers SET title = ?, description = ?, ends_at = ?, is_active = ? "
+            "WHERE id = ?",
+            (values["title"], values["description"], values["ends_at"],
+             values["is_active"], offer_id),
+        )
+        connection.execute(
+            """UPDATE catalog_products SET name = ?, category = ?, description = ?,
+            image = COALESCE(?, image), price = ?, old_price = ?, features_json = ?,
+            updated_at = ? WHERE slug = ?""",
+            (values["name"], values["category"], values["product_description"], image_path,
+             values["offer_price"], values["main_price"], values["features_json"],
+             int(time.time()), values["slug"]),
+        )
+        connection.execute(
+            "UPDATE product_inventory SET stock = ? WHERE product_slug = ?",
+            (values["stock"], values["slug"]),
+        )
+    flash("Offer product updated.", "success")
     return redirect(url_for("admin_dashboard") + "#offers")
 
 
-@app.post("/admin/offers/<int:offer_id>/delete")
-def admin_delete_offer(offer_id):
+@app.post("/admin/offers/<slug>/delete")
+def admin_delete_offer(slug):
     require_staff()
     with database() as connection:
-        result = connection.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
+        result = connection.execute(
+            "UPDATE catalog_products SET is_active = 0, updated_at = ? WHERE slug = ? "
+            "AND EXISTS (SELECT 1 FROM offers WHERE product_slug = ?)",
+            (int(time.time()), slug, slug),
+        )
+        if result.rowcount:
+            connection.execute("DELETE FROM offers WHERE product_slug = ?", (slug,))
     if not result.rowcount:
         abort(404)
-    flash("Offer removed; the catalog product and its order history were preserved.", "success")
+    flash("Offer product archived; its order history was preserved.", "success")
     return redirect(url_for("admin_dashboard") + "#offers")
 
 

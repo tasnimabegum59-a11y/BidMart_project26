@@ -1969,11 +1969,83 @@ a { /* সব link নির্বাচন করে */
     font: inherit;
 }
 
-.admin-offer-edit {
-    flex: 1 1 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin: 10px 0 0;
-    padding: 0;
+.admin-offer-list {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-offer-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid #e5ebee;
+    border-radius: 10px;
+}
+
+.admin-offer-thumbnail {
+    width: 70px;
+    height: 70px;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    background: #f3f7f8;
+    object-fit: contain;
+}
+
+.admin-offer-summary {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 4px;
+}
+
+.admin-offer-summary strong {
+    color: var(--color-primary);
+    font-size: 13px;
+}
+
+.admin-offer-summary small {
+    color: #71808a;
+    font-size: 11px;
+}
+
+.admin-offer-form output {
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    color: #24724e;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.admin-offer-image-preview {
+    grid-column: 1 / -1;
+    color: #71808a;
+    font-size: 12px;
+}
+
+.admin-offer-form input[type="file"] {
+    padding: 6px;
+}
+
+.admin-offer-form .admin-form-actions {
+    gap: 10px;
+}
+
+.offer-promo-description {
+    margin-bottom: 8px;
+    color: #df4c60;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.offer-features {
+    margin: 0 0 14px;
+    padding-left: 19px;
+    color: #607986;
+    font-size: 12px;
+    line-height: 1.7;
 }
 
 .admin-auction-row > form:not(.admin-auction-edit):not(.admin-auction-reopen):not(.admin-offer-edit) {
@@ -2022,6 +2094,20 @@ a { /* সব link নির্বাচন করে */
 }
 
 @media (max-width: 600px) {
+    .admin-offer-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .admin-offer-row > form {
+        flex: 1;
+    }
+
+    .admin-offer-row > form button,
+    .admin-offer-edit-button {
+        width: 100%;
+    }
+
     .admin-dashboard {
         padding-top: 25px;
         padding-bottom: 46px;

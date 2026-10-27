@@ -1,3 +1,4 @@
+import io
 import re
 import os
 import tempfile
@@ -178,7 +179,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'Up to', home.data)
         self.assertIn(b'40% OFF', home.data)
         self.assertIn(b'href="/offers">Shop Offers', home.data)
-        self.assertEqual(home.data.count(b'class="promo-deal-product"'), 3)
+        self.assertEqual(home.data.count(b'class="promo-deal-product"'), 0)
         self.assertNotIn(b'src="/static/live-auction-card.png"', home.data)
         self.assertNotIn(b'src="/static/summer-savings-card.png"', home.data)
         self.assertIn(b'href="/auction/iphone-14-pro-max"', home.data)
@@ -275,6 +276,24 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"Login to Buy", self.client.get("/").data)
         product_detail = self.client.get("/products/casual-sneakers")
         self.assertIn(b"Login to Buy", product_detail.data)
+
+    def test_database_migration_removes_preloaded_demo_offers(self):
+        with bidmart.database() as connection:
+            for slug, title in (
+                ("jbl-wireless-headphones", "JBL Headphones · 40% OFF"),
+                ("smart-watch-bluetooth-calling", "Smart Watch · 25% OFF"),
+                ("wireless-earbuds", "Wireless Earbuds · 26% OFF"),
+            ):
+                connection.execute(
+                    "INSERT INTO offers (product_slug, title, description, ends_at, is_active) "
+                    "VALUES (?, ?, 'legacy seeded deal', ?, 1)",
+                    (slug, title, int(time.time()) + 86400),
+                )
+
+        bidmart.initialize_database()
+
+        with bidmart.database() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM offers").fetchone()[0], 0)
 
     def test_guest_cannot_reach_checkout_without_login(self):
         response = self.start_checkout(as_guest=True)
@@ -712,7 +731,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         offers_page = self.client.get("/offers")
         self.assertEqual(offers_page.status_code, 200)
         self.assertIn(b"Special Offers", offers_page.data)
-        self.assertIn(b"JBL Headphones", offers_page.data)
+        self.assertIn(b"There are no active offers right now", offers_page.data)
         self.assertIn(b'href="/offers"', self.client.get("/").data)
         csrf = self.csrf_from(dashboard)
         product_values = {
@@ -745,36 +764,110 @@ class AuthenticationFlowTests(unittest.TestCase):
         offer_end = time.strftime("%Y-%m-%dT%H:%M", time.gmtime(time.time() + 86400))
         created_offer = self.client.post("/admin/offers/create", data={
             "csrf_token": csrf,
-            "product_slug": "test-desk-light",
-            "title": "Desk light launch deal",
-            "description": "A limited-time test offer.",
+            "name": "Test Desk Lamp",
+            "slug": "test-offer-desk-lamp",
+            "category": "Home",
+            "title": "Desk lamp launch deal",
+            "description": "A limited-time lamp offer.",
+            "product_description": "Adjustable desk lamp with warm LED lighting.",
+            "main_price": "1800",
+            "offer_price": "1500",
+            "stock": "6",
+            "features": "Adjustable arm, Warm LED",
             "ends_at": offer_end,
             "is_active": "1",
-        })
+            "image": (io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24), "lamp.png", "image/png"),
+        }, content_type="multipart/form-data")
         self.assertEqual(created_offer.status_code, 302)
-        self.assertIn(b"Desk light launch deal", self.client.get("/offers").data)
+        offers_page = self.client.get("/offers")
+        self.assertIn(b"Desk lamp launch deal", offers_page.data)
+        self.assertIn(b"17% OFF", offers_page.data)
+        self.assertIn("৳ 1,800".encode(), offers_page.data)
+        self.assertIn(b"Adjustable desk lamp with warm LED lighting.", offers_page.data)
+        self.assertEqual(self.client.get("/admin/dashboard").data.count(b'id="adminOfferForm"'), 1)
+        self.assertNotIn(b"Test Desk Lamp", self.client.get("/products").data)
+        self.assertEqual(self.client.get("/products/test-offer-desk-lamp").status_code, 200)
+        self.assertEqual(bidmart.get_product("test-offer-desk-lamp")["price"], 1500)
+        offer_checkout = self.client.post("/checkout/start", data={
+            "csrf_token": csrf,
+            "product_slug": "test-offer-desk-lamp",
+            "quantity": "1",
+        })
+        self.assertEqual(offer_checkout.headers["Location"], "/checkout")
+        self.assertIn(b"1,500", self.client.get("/checkout").data)
         with bidmart.database() as connection:
             offer_id = connection.execute(
-                "SELECT id FROM offers WHERE product_slug = 'test-desk-light'"
+                "SELECT id FROM offers WHERE product_slug = 'test-offer-desk-lamp'"
             ).fetchone()["id"]
+            uploaded_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'test-offer-desk-lamp'"
+            ).fetchone()["image"]
+        second_offer = self.client.post("/admin/offers/create", data={
+            "csrf_token": csrf,
+            "name": "Second Test Offer",
+            "slug": "second-test-offer",
+            "category": "Home",
+            "title": "Second reusable form deal",
+            "description": "A second offer made with the same form.",
+            "product_description": "A second standalone test offer.",
+            "main_price": "500",
+            "offer_price": "400",
+            "stock": "2",
+            "features": "Easy setup",
+            "ends_at": offer_end,
+            "is_active": "1",
+            "image": (io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24), "second.png", "image/png"),
+        }, content_type="multipart/form-data")
+        self.assertEqual(second_offer.status_code, 302)
+        self.assertIn(b"Second reusable form deal", self.client.get("/offers").data)
+        with bidmart.database() as connection:
+            second_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'second-test-offer'"
+            ).fetchone()["image"]
         updated_offer = self.client.post(
             f"/admin/offers/{offer_id}/update",
             data={
                 "csrf_token": csrf,
-                "product_slug": "test-desk-light",
-                "title": "Updated desk light deal",
+                "existing_slug": "test-offer-desk-lamp",
+                "name": "Updated Desk Lamp",
+                "slug": "test-offer-desk-lamp",
+                "category": "Home",
+                "title": "Updated desk lamp deal",
                 "description": "Updated offer description.",
+                "product_description": "Updated lamp with dimmable light.",
+                "main_price": "2000",
+                "offer_price": "1200",
+                "stock": "4",
+                "features": "Dimmable",
                 "ends_at": offer_end,
                 "is_active": "0",
             },
         )
         self.assertEqual(updated_offer.status_code, 302)
-        self.assertNotIn(b"Updated desk light deal", self.client.get("/offers").data)
+        self.assertNotIn(b"Updated desk lamp deal", self.client.get("/offers").data)
+        with bidmart.database() as connection:
+            updated_product = connection.execute(
+                "SELECT name, price, old_price, image FROM catalog_products "
+                "WHERE slug = 'test-offer-desk-lamp'"
+            ).fetchone()
+        self.assertEqual(updated_product["name"], "Updated Desk Lamp")
+        self.assertEqual(updated_product["price"], 1200)
+        self.assertEqual(updated_product["old_price"], 2000)
+        self.assertEqual(updated_product["image"], uploaded_image)
         deleted_offer = self.client.post(
-            f"/admin/offers/{offer_id}/delete", data={"csrf_token": csrf}
+            "/admin/offers/test-offer-desk-lamp/delete", data={"csrf_token": csrf}
         )
         self.assertEqual(deleted_offer.status_code, 302)
-        self.assertIsNotNone(bidmart.get_product("test-desk-light"))
+        with bidmart.database() as connection:
+            archived_offer_product = connection.execute(
+                "SELECT is_active FROM catalog_products WHERE slug = 'test-offer-desk-lamp'"
+            ).fetchone()
+        self.assertEqual(archived_offer_product["is_active"], 0)
+        (bidmart.ROOT / "static" / uploaded_image).unlink()
+        self.client.post(
+            "/admin/offers/second-test-offer/delete", data={"csrf_token": csrf}
+        )
+        (bidmart.ROOT / "static" / second_image).unlink()
 
         created_auction = self.client.post("/admin/auctions/create", data={
             "csrf_token": csrf,
