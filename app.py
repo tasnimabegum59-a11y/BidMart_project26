@@ -1636,15 +1636,22 @@ def get_product(slug, include_inactive=False):
 def get_auction_listings(include_inactive=False):
     query = (
         "SELECT a.slug, a.current_bid, a.ends_at, a.starting_bid, a.minimum_increment, "
-        "a.is_active, p.name, p.category, p.description, p.image, p.icon, p.price AS original_price "
+        "a.is_active, p.name, p.category, p.description, p.image, p.icon, p.price AS original_price, "
+        "p.old_price, p.features_json, p.show_in_catalog, i.stock "
         "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug"
+        " LEFT JOIN product_inventory AS i ON i.product_slug = p.slug"
     )
     if not include_inactive:
         query += " WHERE a.is_active = 1 AND p.is_active = 1"
     query += " ORDER BY a.ends_at"
     with database() as connection:
         rows = connection.execute(query).fetchall()
-    return [dict(row) for row in rows]
+    listings = []
+    for row in rows:
+        listing = dict(row)
+        listing["features_text"] = ", ".join(json.loads(listing.pop("features_json")))
+        listings.append(listing)
+    return listings
 
 
 def get_offer_listings(include_inactive=False):
@@ -1721,11 +1728,6 @@ def admin_dashboard():
                 "SELECT COUNT(*) FROM orders WHERE order_status = 'pending' OR payment_status = 'unpaid'"
             ).fetchone()[0],
         }
-        auction_products = connection.execute(
-            "SELECT p.slug, p.name FROM catalog_products AS p "
-            "LEFT JOIN auctions AS a ON a.slug = p.slug "
-            "WHERE p.is_active = 1 AND a.slug IS NULL ORDER BY p.name COLLATE NOCASE"
-        ).fetchall()
         role_row = connection.execute(
             "SELECT role FROM accounts WHERE id = ?", (staff_id,)
         ).fetchone()
@@ -1748,7 +1750,6 @@ def admin_dashboard():
         orders=orders,
         stats=stats,
         auctions=get_auction_listings(include_inactive=True),
-        auction_products=auction_products,
         offers=offers,
         offer_product_slugs={offer["product_slug"] for offer in offers},
         accounts=accounts,
@@ -1921,7 +1922,35 @@ def admin_set_product_status(slug, action):
 @app.post("/admin/auctions/create")
 def admin_create_auction():
     require_staff()
-    slug = request.form.get("product_slug", "")
+    existing_slug = request.form.get("product_slug", "").strip()
+    if existing_slug and not request.form.get("slug"):
+        try:
+            starting_bid = int(request.form.get("starting_bid", ""))
+            increment = int(request.form.get("minimum_increment", ""))
+            duration = int(request.form.get("duration_days", ""))
+        except ValueError:
+            flash("Starting bid, bid increment, and duration must be whole numbers.", "error")
+            return redirect(url_for("admin_dashboard") + "#auctions")
+        if starting_bid < 1 or increment < 1 or not 1 <= duration <= 90:
+            flash("Enter positive bid amounts and an auction duration from 1 to 90 days.", "error")
+            return redirect(url_for("admin_dashboard") + "#auctions")
+        if not get_product(existing_slug):
+            flash("Choose an active product to auction.", "error")
+            return redirect(url_for("admin_dashboard") + "#auctions")
+        with database() as connection:
+            try:
+                connection.execute(
+                    """INSERT INTO auctions
+                    (slug, current_bid, ends_at, starting_bid, minimum_increment, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)""",
+                    (existing_slug, starting_bid, int(time.time()) + duration * 86400,
+                     starting_bid, increment),
+                )
+            except sqlite3.IntegrityError:
+                flash("This product already has an auction listing.", "error")
+                return redirect(url_for("admin_dashboard") + "#auctions")
+        flash("Auction published.", "success")
+        return redirect(url_for("admin_dashboard") + "#auctions")
     try:
         starting_bid = int(request.form.get("starting_bid", ""))
         increment = int(request.form.get("minimum_increment", ""))
@@ -1932,23 +1961,85 @@ def admin_create_auction():
     if starting_bid < 1 or increment < 1 or not 1 <= duration <= 90:
         flash("Enter positive bid amounts and an auction duration from 1 to 90 days.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
-    product = get_product(slug)
-    if not product:
-        flash("Choose an active product to auction.", "error")
+    image_file = request.files.get("image")
+    values, error = _admin_product_values(request.form, image_file)
+    if error:
+        flash(error, "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
-    with database() as connection:
-        try:
+    image_path = _save_admin_product_image(
+        values["slug"], image_file, values["image_extension"]
+    )
+    now = int(time.time())
+    try:
+        with database() as connection:
+            connection.execute(
+                """INSERT INTO catalog_products
+                (slug, name, category, description, image, icon, price, old_price,
+                 features_json, show_in_catalog, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (values["slug"], values["name"], values["category"], values["description"],
+                 image_path, values["icon"], values["price"], values["old_price"],
+                 values["features_json"], values["show_in_catalog"], now),
+            )
+            connection.execute(
+                "INSERT INTO product_inventory (product_slug, stock) VALUES (?, ?)",
+                (values["slug"], values["stock"]),
+            )
             connection.execute(
                 """INSERT INTO auctions
                 (slug, current_bid, ends_at, starting_bid, minimum_increment, is_active)
                 VALUES (?, ?, ?, ?, ?, 1)""",
-                (slug, starting_bid, int(time.time()) + duration * 86400, starting_bid, increment),
+                (values["slug"], starting_bid, now + duration * 86400, starting_bid, increment),
             )
-        except sqlite3.IntegrityError:
-            flash("This product already has an auction listing.", "error")
-            return redirect(url_for("admin_dashboard") + "#auctions")
+    except sqlite3.IntegrityError:
+        if image_path:
+            (ROOT / "static" / image_path).unlink(missing_ok=True)
+        flash("A product or auction with that slug already exists.", "error")
+        return redirect(url_for("admin_dashboard") + "#auctions")
     flash("Auction published.", "success")
     return redirect(url_for("admin_dashboard") + "#auctions")
+
+
+def _update_auction_product(slug):
+    if not request.form.get("name"):
+        return {}, None
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT image, icon FROM catalog_products WHERE slug = ?", (slug,)
+        ).fetchone()
+    if not existing:
+        abort(404)
+    image_file = request.files.get("image")
+    values, error = _admin_product_values(
+        request.form, image_file,
+        existing_image=existing["image"],
+        existing_icon=existing["icon"],
+    )
+    if error:
+        flash(error, "error")
+        return None
+    if values["slug"] != slug:
+        flash("Product slugs cannot be changed after creation.", "error")
+        return None
+    image_path = _save_admin_product_image(
+        slug, image_file, values["image_extension"]
+    )
+    return values, image_path
+
+
+def _save_auction_product_update(connection, slug, values, image_path):
+    connection.execute(
+        """UPDATE catalog_products SET name = ?, category = ?, description = ?,
+        image = COALESCE(?, image), icon = ?, price = ?, old_price = ?,
+        features_json = ?, show_in_catalog = ?, updated_at = ? WHERE slug = ?""",
+        (values["name"], values["category"], values["description"], image_path,
+         values["icon"], values["price"], values["old_price"], values["features_json"],
+         values["show_in_catalog"], int(time.time()), slug),
+    )
+    connection.execute(
+        "UPDATE product_inventory SET stock = ? WHERE product_slug = ?",
+        (values["stock"], slug),
+    )
 
 
 @app.post("/admin/auctions/<slug>/close")
@@ -1978,14 +2069,25 @@ def admin_update_auction(slug):
     if increment < 1 or not 1 <= duration <= 90:
         flash("Enter a positive bid increment and an auction duration from 1 to 90 days.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
+    product_update = _update_auction_product(slug)
+    if product_update is None:
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    values, image_path = product_update
     with database() as connection:
         result = connection.execute(
             "UPDATE auctions SET minimum_increment = ?, ends_at = ? WHERE slug = ? AND is_active = 1",
             (increment, int(time.time()) + duration * 86400, slug),
         )
+        if result.rowcount and values:
+            _save_auction_product_update(connection, slug, values, image_path)
     if not result.rowcount:
+        if image_path:
+            (ROOT / "static" / image_path).unlink(missing_ok=True)
         abort(404)
-    flash("Auction details updated.", "success")
+    flash(
+        "Auction and product details updated." if values else "Auction details updated.",
+        "success",
+    )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 
@@ -2000,15 +2102,27 @@ def admin_reopen_auction(slug):
     if not 1 <= duration <= 90:
         flash("Enter an auction duration from 1 to 90 days.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
+    product_update = _update_auction_product(slug)
+    if product_update is None:
+        return redirect(url_for("admin_dashboard") + "#auctions")
+    values, image_path = product_update
     with database() as connection:
         result = connection.execute(
             "UPDATE auctions SET is_active = 1, ends_at = ? WHERE slug = ? AND is_active = 0",
             (int(time.time()) + duration * 86400, slug),
         )
+        if result.rowcount and values:
+            _save_auction_product_update(connection, slug, values, image_path)
     if not result.rowcount:
+        if image_path:
+            (ROOT / "static" / image_path).unlink(missing_ok=True)
         flash("That auction is already active or was not found.", "error")
     else:
-        flash("Auction reopened with its bid history preserved.", "success")
+        flash(
+            "Auction reopened and product details updated." if values
+            else "Auction reopened with its bid history preserved.",
+            "success",
+        )
     return redirect(url_for("admin_dashboard") + "#auctions")
 
 

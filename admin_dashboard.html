@@ -237,23 +237,27 @@
             </div>
             <details class="admin-create-panel">
                 <summary id="auctionFormHeading">Create an auction</summary>
-                <form class="admin-product-form admin-auction-form" id="adminAuctionForm" action="{{ url_for('admin_create_auction') }}" method="post">
+                <form class="admin-product-form admin-auction-form" id="adminAuctionForm" action="{{ url_for('admin_create_auction') }}" method="post" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <label class="admin-field-wide">Product
-                        <select name="product_slug" required>
-                            <option value="" selected disabled>Choose a product</option>
-                            {% for product in auction_products %}<option value="{{ product.slug }}">{{ product.name }}</option>{% endfor %}
-                        </select>
-                    </label>
+                    <label>Product name<input name="name" maxlength="120" required></label>
+                    <label>Product slug<input name="slug" placeholder="wireless-headphones" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+                    <label>Category<input name="category" maxlength="80" required></label>
+                    <label>Store visibility<select name="show_in_catalog"><option value="0" selected>Auction only</option><option value="1">Main catalog</option></select></label>
+                    <label>Original price (৳)<input name="price" type="number" min="1" required></label>
+                    <label>Previous price (৳)<input name="old_price" type="number" min="1"></label>
+                    <label>Stock<input name="stock" type="number" min="0" max="1000000" required></label>
+                    <label>Product image<input name="image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+                    <div class="admin-offer-image-preview" id="auctionImagePreview" hidden></div>
+                    <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required></textarea></label>
+                    <label class="admin-field-wide">Features, comma separated<input name="features" placeholder="Fast delivery, 1-year warranty"></label>
                     <label>Starting bid (৳)<input name="starting_bid" type="number" min="1" required></label>
                     <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" required></label>
                     <label id="auctionDurationLabel">Duration (days)<input name="duration_days" type="number" min="1" max="90" required></label>
                     <div class="admin-form-actions">
-                        <button class="admin-action-primary" id="auctionSubmitButton" type="submit" {% if not auction_products %}disabled{% endif %}>Publish auction</button>
+                        <button class="admin-action-primary" id="auctionSubmitButton" type="submit">Publish auction</button>
                         <button class="admin-action-secondary" id="auctionCancelEdit" type="button" hidden>Cancel edit</button>
                     </div>
                 </form>
-                {% if not auction_products %}<p class="admin-help-text">Add a product to the catalog first, then select it here.</p>{% endif %}
             </details>
             <details class="admin-create-panel admin-manage-panel" id="manageAuctions">
                 <summary>Manage existing auctions ({{ auctions|length }})</summary>
@@ -264,6 +268,15 @@
                         <button class="admin-action-secondary admin-auction-edit-button" type="button"
                             data-slug="{{ auction.slug }}"
                             data-name="{{ auction.name }}"
+                            data-category="{{ auction.category }}"
+                            data-description="{{ auction.description }}"
+                            data-price="{{ auction.original_price }}"
+                            data-old-price="{{ auction.old_price or '' }}"
+                            data-stock="{{ auction.stock or 0 }}"
+                            data-features="{{ auction.features_text }}"
+                            data-image="{{ auction.image or '' }}"
+                            data-icon="{{ auction.icon or '' }}"
+                            data-show-in-catalog="{{ 1 if auction.show_in_catalog else 0 }}"
                             data-starting-bid="{{ auction.starting_bid }}"
                             data-minimum-increment="{{ auction.minimum_increment }}"
                             data-is-active="{{ 1 if auction.is_active else 0 }}">Edit auction</button>
@@ -287,42 +300,48 @@
                     const submit = document.getElementById("auctionSubmitButton");
                     const cancel = document.getElementById("auctionCancelEdit");
                     const durationLabel = document.getElementById("auctionDurationLabel");
+                    const imageInput = form.elements.image;
+                    const imagePreview = document.getElementById("auctionImagePreview");
 
                     function resetAuctionForm() {
-                        form.querySelectorAll('option[data-edit-only="true"]').forEach(function(option) {
-                            option.remove();
-                        });
                         form.reset();
                         form.action = "{{ url_for('admin_create_auction') }}";
-                        form.elements.product_slug.disabled = false;
+                        form.elements.slug.readOnly = false;
                         form.elements.starting_bid.disabled = false;
                         form.elements.minimum_increment.disabled = false;
                         form.elements.minimum_increment.required = true;
+                        imageInput.required = true;
+                        imagePreview.hidden = true;
+                        imagePreview.textContent = "";
                         durationLabel.firstChild.textContent = "Duration (days)";
                         heading.textContent = "Create an auction";
                         submit.textContent = "Publish auction";
-                        submit.disabled = {{ "true" if not auction_products else "false" }};
                         cancel.hidden = true;
                     }
 
                     document.querySelectorAll(".admin-auction-edit-button").forEach(function(button) {
                         button.addEventListener("click", function() {
                             const isActive = button.dataset.isActive === "1";
-                            let productOption = Array.from(form.elements.product_slug.options).find(
-                                function(option) { return option.value === button.dataset.slug; }
-                            );
-                            if (!productOption) {
-                                productOption = new Option(button.dataset.name, button.dataset.slug);
-                                productOption.dataset.editOnly = "true";
-                                form.elements.product_slug.add(productOption);
-                            }
-                            form.elements.product_slug.value = button.dataset.slug;
-                            form.elements.product_slug.disabled = true;
+                            form.elements.name.value = button.dataset.name;
+                            form.elements.slug.value = button.dataset.slug;
+                            form.elements.slug.readOnly = true;
+                            form.elements.category.value = button.dataset.category;
+                            form.elements.description.value = button.dataset.description;
+                            form.elements.price.value = button.dataset.price;
+                            form.elements.old_price.value = button.dataset.oldPrice;
+                            form.elements.stock.value = button.dataset.stock;
+                            form.elements.features.value = button.dataset.features;
+                            form.elements.show_in_catalog.value = button.dataset.showInCatalog;
                             form.elements.starting_bid.value = button.dataset.startingBid;
                             form.elements.starting_bid.disabled = true;
                             form.elements.minimum_increment.value = button.dataset.minimumIncrement;
                             form.elements.minimum_increment.disabled = !isActive;
                             form.elements.minimum_increment.required = isActive;
+                            imageInput.required = false;
+                            imagePreview.hidden = !button.dataset.image && !button.dataset.icon;
+                            imagePreview.textContent = button.dataset.image
+                                ? `Current image: ${button.dataset.image}`
+                                : button.dataset.icon ? `Current icon: ${button.dataset.icon}` : "";
                             form.elements.duration_days.value = "";
                             form.action = isActive
                                 ? `/admin/auctions/${button.dataset.slug}/update`
@@ -337,6 +356,13 @@
                             form.closest("details").open = true;
                             form.scrollIntoView({ behavior: "smooth", block: "center" });
                         });
+                    });
+
+                    imageInput.addEventListener("change", function() {
+                        const file = imageInput.files[0];
+                        if (!file) return;
+                        imagePreview.hidden = false;
+                        imagePreview.textContent = `Selected image: ${file.name}`;
                     });
 
                     cancel.addEventListener("click", resetAuctionForm);

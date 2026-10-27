@@ -963,6 +963,70 @@ class AuthenticationFlowTests(unittest.TestCase):
             "/admin/auctions/test-desk-light/close", data={"csrf_token": csrf}
         )
 
+        auction_values = {
+            "csrf_token": csrf,
+            "name": "Auction Camera",
+            "slug": "test-auction-camera",
+            "category": "Photography",
+            "description": "A dedicated camera listing created with its auction.",
+            "price": "25000",
+            "old_price": "28000",
+            "stock": "1",
+            "features": "4K video, Optical zoom",
+            "show_in_catalog": "0",
+            "starting_bid": "18000",
+            "minimum_increment": "500",
+            "duration_days": "5",
+        }
+        created_image_auction = self.client.post(
+            "/admin/auctions/create",
+            data={
+                **auction_values,
+                "image": (
+                    io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24),
+                    "auction-camera.png",
+                    "image/png",
+                ),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(created_image_auction.status_code, 302)
+        self.assertEqual(self.client.get("/auction/test-auction-camera").status_code, 200)
+        self.assertNotIn(b"Auction Camera", self.client.get("/products").data)
+        auction_catalog = self.client.get("/auctions")
+        self.assertIn(b"Auction Camera", auction_catalog.data)
+        with bidmart.database() as connection:
+            original_auction_image = connection.execute(
+                "SELECT image FROM catalog_products WHERE slug = 'test-auction-camera'"
+            ).fetchone()["image"]
+        self.assertTrue(original_auction_image.startswith("uploads/products/"))
+        self.assertIn(original_auction_image.encode(), auction_catalog.data)
+
+        updated_image_auction = self.client.post(
+            "/admin/auctions/test-auction-camera/update",
+            data={
+                **auction_values,
+                "name": "Updated Auction Camera",
+                "minimum_increment": "750",
+                "image": (
+                    io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x01" * 24),
+                    "updated-auction-camera.png",
+                    "image/png",
+                ),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(updated_image_auction.status_code, 302)
+        self.assertIn(b"Updated Auction Camera", self.client.get("/auctions").data)
+        with bidmart.database() as connection:
+            updated_auction_product = connection.execute(
+                "SELECT image, price FROM catalog_products WHERE slug = 'test-auction-camera'"
+            ).fetchone()
+        self.assertNotEqual(updated_auction_product["image"], original_auction_image)
+        self.assertEqual(updated_auction_product["price"], 25000)
+        for image in (original_auction_image, updated_auction_product["image"]):
+            (bidmart.ROOT / "static" / image).unlink()
+
         archived = self.client.post(
             "/admin/products/test-desk-light/archive", data={"csrf_token": csrf}
         )
