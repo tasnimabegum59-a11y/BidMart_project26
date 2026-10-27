@@ -62,15 +62,15 @@
                         </div>
                         <p class="offer-ends-at">Offer ends {{ offer.ends_at|datetime }}</p>
                         <div class="product-actions offer-list-actions">
-                            <a class="product-btn product-details-btn" href="{{ url_for('product_details_page', slug=offer.product_slug) }}">View Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_slug" value="{{ offer.product_slug }}">
                                 <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" {% if offer.stock < 1 %}disabled{% endif %}>
-                                    {% if offer.stock %}{% if current_user_email %}Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}
+                                <button class="product-btn product-details-btn" type="submit" {% if offer.stock < 1 %}disabled{% endif %}>
+                                    {% if offer.stock %}Add to Cart{% else %}Out of stock{% endif %}
                                 </button>
                             </form>
+                            <a class="product-btn product-buy-btn" href="{{ url_for('product_details_page', slug=offer.product_slug) }}">Buy Now</a>
                         </div>
                     </div>
                 </article>

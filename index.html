@@ -181,13 +181,13 @@
                         {% endif %}
                         <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
                         <div class="product-actions">
-                            <a href="{{ url_for('product_details_page', slug=product.slug) }}" class="product-btn product-details-btn">ⓘ Know Details</a>
-                            <form method="post" action="{{ url_for('start_checkout') }}">
+                            <form method="post" action="{{ url_for('add_to_cart') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_slug" value="{{ product.slug }}">
                                 <input type="hidden" name="quantity" value="1">
-                                <button class="product-btn product-buy-btn" type="submit" data-buy-now {% if stock < 1 %}disabled{% endif %}>{% if stock > 0 %}{% if current_user_email %}🛒 Buy Now{% else %}Login to Buy{% endif %}{% else %}Out of stock{% endif %}</button>
+                                <button class="product-btn product-details-btn" type="submit" {% if stock < 1 %}disabled{% endif %}>{% if stock > 0 %}Add to Cart{% else %}Out of stock{% endif %}</button>
                             </form>
+                            <a href="{{ url_for('product_details_page', slug=product.slug) }}" class="product-btn product-buy-btn">Buy Now</a>
                             {% if current_user_role in ("admin", "superadmin") %}
                             <a class="catalog-admin-item-link" href="{{ url_for('admin_dashboard') }}#product-{{ product.slug }}">Manage this product</a>
                             {% endif %}

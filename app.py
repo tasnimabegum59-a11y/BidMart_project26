@@ -438,6 +438,15 @@ def initialize_database():
             )"""
         )
         connection.execute(
+            """CREATE TABLE IF NOT EXISTS cart_items (
+                account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                product_slug TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 99),
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, product_slug)
+            )"""
+        )
+        connection.execute(
             """CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY,
                 order_number TEXT NOT NULL UNIQUE,
@@ -972,6 +981,121 @@ def product_details_page(slug):
         current_user_name=session.get("user_name"),
         active_page="products",
     )
+
+
+def _save_cart_item(account_id, slug, quantity, add_quantity=False):
+    product = get_product(slug)
+    if not product:
+        return "This product is no longer available."
+
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        inventory = connection.execute(
+            "SELECT stock FROM product_inventory WHERE product_slug = ?", (slug,)
+        ).fetchone()
+        stock = inventory["stock"] if inventory else 0
+        existing = connection.execute(
+            "SELECT quantity FROM cart_items WHERE account_id = ? AND product_slug = ?",
+            (account_id, slug),
+        ).fetchone()
+        final_quantity = quantity + (existing["quantity"] if existing and add_quantity else 0)
+        if stock < 1:
+            return "This product is out of stock."
+        if final_quantity > min(stock, 99):
+            return f"Your cart can contain up to {min(stock, 99)} item(s) of this product."
+        connection.execute(
+            """INSERT INTO cart_items (account_id, product_slug, quantity, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(account_id, product_slug) DO UPDATE SET
+                quantity = excluded.quantity, updated_at = excluded.updated_at""",
+            (account_id, slug, final_quantity, int(time.time())),
+        )
+    return None
+
+
+@app.post("/cart/add")
+def add_to_cart():
+    slug = request.form.get("product_slug", "").strip()
+    quantity = _parse_quantity(request.form.get("quantity", "1"))
+    if not get_product(slug):
+        flash("This product is no longer available.", "error")
+        return redirect(url_for("products_page"))
+    if quantity is None:
+        flash("Choose a valid quantity between 1 and 99.", "error")
+        return redirect(url_for("product_details_page", slug=slug))
+
+    account_id = session.get("user_id")
+    if not account_id:
+        session["pending_cart_add"] = {"slug": slug, "quantity": quantity}
+        flash("Log in to save this product to your cart.", "info")
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+
+    error = _save_cart_item(account_id, slug, quantity, add_quantity=True)
+    if error:
+        flash(error, "error")
+    else:
+        flash(f"{quantity} item(s) added to your cart.", "success")
+    return redirect(url_for("my_cart_page"))
+
+
+@app.get("/my-cart")
+def my_cart_page():
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+
+    with database() as connection:
+        rows = connection.execute(
+            """SELECT product_slug, quantity FROM cart_items
+            WHERE account_id = ? ORDER BY updated_at DESC, product_slug""",
+            (account_id,),
+        ).fetchall()
+    items = []
+    for row in rows:
+        product = get_product(row["product_slug"])
+        items.append({
+            "slug": row["product_slug"],
+            "quantity": row["quantity"],
+            "product": product,
+            "stock": _checkout_stock(row["product_slug"]) if product else 0,
+        })
+    return render_template(
+        "my_cart.html",
+        items=items,
+        active_page="my_cart",
+    )
+
+
+@app.post("/my-cart/<slug>/update")
+def update_cart_item(slug):
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+    quantity = _parse_quantity(request.form.get("quantity"))
+    if quantity is None:
+        flash("Choose a valid quantity between 1 and 99.", "error")
+        return redirect(url_for("my_cart_page"))
+
+    error = _save_cart_item(account_id, slug, quantity)
+    if error:
+        flash(error, "error")
+    else:
+        flash("Cart quantity updated.", "success")
+    return redirect(url_for("my_cart_page"))
+
+
+@app.post("/my-cart/<slug>/remove")
+def remove_cart_item(slug):
+    account_id = session.get("user_id")
+    if not account_id:
+        return redirect(url_for("login_page", next=url_for("my_cart_page")))
+    with database() as connection:
+        connection.execute(
+            "DELETE FROM cart_items WHERE account_id = ? AND product_slug = ?",
+            (account_id, slug),
+        )
+    flash("Product removed from your cart.", "success")
+    return redirect(url_for("my_cart_page"))
 
 
 def _checkout_product():
@@ -1806,7 +1930,7 @@ def stylesheet():
 
 
 def valid_login_next_url(candidate):
-    allowed_destinations = {url_for("checkout_page")}
+    allowed_destinations = {url_for("checkout_page"), url_for("my_cart_page")}
     allowed_destinations.update(
         url_for("auction_details", slug=listing["slug"])
         for listing in get_auction_listings()
@@ -3345,6 +3469,7 @@ def login():
         return redirect(url_for("login_page", next=next_url) if next_url else url_for("login_page"))
 
     checkout_draft = session.get("checkout_draft")
+    pending_cart_add = session.get("pending_cart_add")
     session.clear()
     session["user_id"] = account["id"]
     session["user_email"] = account["email"]
@@ -3352,6 +3477,19 @@ def login():
     session["user_role"] = account["role"]
     if checkout_draft:
         session["checkout_draft"] = checkout_draft
+    if pending_cart_add:
+        session["pending_cart_add"] = pending_cart_add
+        error = _save_cart_item(
+            account["id"],
+            pending_cart_add.get("slug", ""),
+            pending_cart_add.get("quantity", 1),
+            add_quantity=True,
+        )
+        session.pop("pending_cart_add", None)
+        if error:
+            flash(error, "error")
+        else:
+            flash("Product added to your cart.", "success")
     flash("You are logged in.", "success")
     return redirect(next_url or url_for("home"))
 

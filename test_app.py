@@ -196,12 +196,12 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertEqual(home.data.count(b'class="product-card"'), 6)
-        self.assertEqual(home.data.count(b'data-buy-now'), 6)
-        self.assertEqual(home.data.count(b'action="/checkout/start"'), 6)
+        self.assertEqual(home.data.count(b'action="/cart/add"'), 6)
+        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 6)
         self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
         for product in bidmart.PRODUCT_CATALOG[:6]:
             self.assertIn(
-                f'href="/products/{product["slug"]}" class="product-btn product-details-btn"'.encode(),
+                f'href="/products/{product["slug"]}" class="product-btn product-buy-btn"'.encode(),
                 home.data,
             )
         for product_name in (
@@ -267,16 +267,93 @@ class AuthenticationFlowTests(unittest.TestCase):
             response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
         )
-        self.assertEqual(response.data.count(b'data-buy-now'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'action="/cart/add"'), len(bidmart.PRODUCT_CATALOG))
+        self.assertEqual(response.data.count(b'class="product-btn product-buy-btn"'), len(bidmart.PRODUCT_CATALOG))
         self.assertEqual(response.data.count(b'name="product_slug"'), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"IdeaPad Slim 3 Laptop", response.data)
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
-        self.assertIn(b"Login to Buy", response.data)
+        self.assertIn(b"Add to Cart", response.data)
         self.assertNotIn(b"continue as guest", response.data)
-        self.assertIn(b"Login to Buy", self.client.get("/").data)
+        self.assertIn(b"Add to Cart", self.client.get("/").data)
         product_detail = self.client.get("/products/casual-sneakers")
-        self.assertIn(b"Login to Buy", product_detail.data)
+        self.assertIn(b"Order Now", product_detail.data)
+        self.assertNotIn(b"Login to Buy", product_detail.data)
+
+    def test_cart_add_update_remove_and_order_flow(self):
+        self.login_as_checkout_buyer()
+        catalog = self.client.get("/products")
+        csrf = self.csrf_from(catalog)
+        added = self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "1",
+        })
+        self.assertEqual(added.headers["Location"], "/my-cart")
+        self.client.post("/cart/add", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "2",
+        })
+        cart = self.client.get("/my-cart")
+        self.assertEqual(cart.status_code, 200)
+        self.assertIn(b"My Cart", cart.data)
+        self.assertIn(b"Casual Sneakers", cart.data)
+        self.assertIn(b'value="3"', cart.data)
+        self.assertIn(b'action="/checkout/start"', cart.data)
+        self.assertIn(b"Order Now", cart.data)
+        checkout = self.client.post("/checkout/start", data={
+            "csrf_token": csrf,
+            "product_slug": "casual-sneakers",
+            "quantity": "3",
+        })
+        self.assertEqual(checkout.headers["Location"], "/checkout")
+        self.assertIn(b"Delivery and payment", self.client.get("/checkout").data)
+
+        updated = self.client.post("/my-cart/casual-sneakers/update", data={
+            "csrf_token": csrf,
+            "quantity": "4",
+        })
+        self.assertEqual(updated.headers["Location"], "/my-cart")
+        with bidmart.database() as connection:
+            quantity = connection.execute(
+                "SELECT quantity FROM cart_items WHERE product_slug = 'casual-sneakers'"
+            ).fetchone()["quantity"]
+        self.assertEqual(quantity, 4)
+
+        removed = self.client.post("/my-cart/casual-sneakers/remove", data={
+            "csrf_token": csrf,
+        })
+        self.assertEqual(removed.headers["Location"], "/my-cart")
+        self.assertIn(b"Your cart is empty", self.client.get("/my-cart").data)
+
+    def test_guest_add_to_cart_survives_login(self):
+        page = self.client.get("/products")
+        response = self.client.post("/cart/add", data={
+            "csrf_token": self.csrf_from(page),
+            "product_slug": "casual-sneakers",
+            "quantity": "2",
+        })
+        self.assertEqual(response.headers["Location"], "/login.html?next=/my-cart")
+
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO accounts (full_name, email, phone, password_hash, role, is_verified, created_at) "
+                "VALUES (?, ?, ?, ?, 'user', 1, ?)",
+                ("Cart Buyer", self.email, "01712345678",
+                 generate_password_hash("secure-test-password"), 1),
+            )
+        login_page = self.client.get(response.headers["Location"])
+        login_response = self.client.post("/login", data={
+            "csrf_token": self.csrf_from(login_page),
+            "next": "/my-cart",
+            "email": self.email,
+            "password": "secure-test-password",
+        })
+        self.assertEqual(login_response.headers["Location"], "/my-cart")
+        cart = self.client.get("/my-cart")
+        self.assertIn(b"Casual Sneakers", cart.data)
+        self.assertIn(b'value="2"', cart.data)
 
     def test_database_migration_removes_preloaded_demo_offers(self):
         with bidmart.database() as connection:
@@ -990,7 +1067,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Products & inventory", dashboard.data)
         self.assertNotIn(b'id="accounts"', dashboard.data)
-        self.assertNotIn(b"My Products", dashboard.data)
+        self.assertNotIn(b"My Cart", dashboard.data)
         self.assertNotIn(b"My Orders", dashboard.data)
         product_catalog = self.client.get("/products")
         self.assertIn(b"Manage products", product_catalog.data)

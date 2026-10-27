@@ -20,7 +20,9 @@ A Gmail App Password was exposed in chat. Treat it as compromised: revoke it in 
 
 3. Set `SMTP_USERNAME` and `SMTP_FROM` to the sender mailbox, and `SMTP_PASSWORD` to a newly generated Gmail App Password. Keep `.env` private; `.gitignore` excludes it.
 
-4. Start the app:
+4. On Windows, double-click `run_bidmart.cmd` in the project folder. On first run, it creates `.venv` and installs the dependencies; it then starts BidMart and opens `http://127.0.0.1:5000` in your browser. Keep the **BidMart Server** window open while using the site.
+
+   To start the app manually instead:
 
    ```powershell
    C:/Users/DESKTOP/AppData/Local/Programs/Python/Python312/python.exe app.py
