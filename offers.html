@@ -61,6 +61,7 @@
                             </div>
                         </div>
                         <p class="offer-ends-at">Offer ends {{ offer.ends_at|datetime }}</p>
+                        <a class="product-btn product-view-details-btn" href="{{ url_for('product_details_page', slug=offer.product_slug) }}">View Details</a>
                         <div class="product-actions offer-list-actions">
                             <form method="post" action="{{ url_for('add_to_cart') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

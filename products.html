@@ -51,6 +51,7 @@
                             <span aria-hidden="true"></span>
                             {% endif %}
                             <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
+                            <a class="product-btn product-view-details-btn" href="{{ url_for('product_details_page', slug=product.slug) }}">View Details</a>
                             <div class="product-actions">
                                 <form method="post" action="{{ url_for('add_to_cart') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

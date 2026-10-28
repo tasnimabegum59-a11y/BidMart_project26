@@ -31,9 +31,16 @@
             {% endwith %}
 
             {% if items %}
+            <div class="cart-layout">
             <div class="cart-items">
                 {% for item in items %}
-                <article class="cart-item">
+                <article class="cart-item" data-cart-line data-line-total="{{ item.product.price * item.quantity if item.product else 0 }}" data-stock="{{ item.stock }}" data-quantity="{{ item.quantity }}">
+                    {% if item.product %}
+                    <label class="cart-select-control">
+                        <input type="checkbox" name="selected_products" value="{{ item.slug }}" form="cartCheckoutForm" checked aria-label="Select {{ item.product.name }} for checkout">
+                        <span aria-hidden="true"></span>
+                    </label>
+                    {% endif %}
                     {% if item.product and item.product.image %}
                     <img class="cart-item-image" src="{{ url_for('static', filename=item.product.image) }}" alt="{{ item.product.name }}">
                     {% elif item.product and item.product.icon %}
@@ -66,14 +73,6 @@
                             <input id="quantity-{{ loop.index }}" name="quantity" type="number" min="1" max="{{ [item.stock, 99]|min }}" value="{{ item.quantity }}" required {% if item.stock < 1 %}disabled{% endif %}>
                             <button type="submit" class="cart-secondary-button" {% if item.stock < 1 %}disabled{% endif %}>Update</button>
                         </form>
-                        {% if item.stock > 0 and item.quantity <= item.stock %}
-                        <form method="post" action="{{ url_for('start_checkout') }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <input type="hidden" name="product_slug" value="{{ item.slug }}">
-                            <input type="hidden" name="quantity" value="{{ item.quantity }}">
-                            <button class="cart-order-button" type="submit">Order Now</button>
-                        </form>
-                        {% endif %}
                         {% endif %}
                         <form method="post" action="{{ url_for('remove_cart_item', slug=item.slug) }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -82,6 +81,21 @@
                     </div>
                 </article>
                 {% endfor %}
+            </div>
+            <aside class="cart-summary" aria-labelledby="cartSummaryHeading">
+                <h2 id="cartSummaryHeading">Order summary</h2>
+                <p id="cartSelectionCount"></p>
+                <div class="cart-summary-lines">
+                    <div><span>Selected subtotal</span><strong id="cartSelectedSubtotal"></strong></div>
+                    <div><span>Delivery</span><strong>Calculated at checkout</strong></div>
+                    <div class="cart-summary-total"><span>Estimated total</span><strong id="cartEstimatedTotal"></strong></div>
+                </div>
+                <form id="cartCheckoutForm" method="post" action="{{ url_for('start_cart_checkout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="cart-order-button" id="cartCheckoutButton" type="submit">Checkout selected items</button>
+                </form>
+                <p class="cart-selection-help">Choose the products you want to order. Unselected items stay in your cart.</p>
+            </aside>
             </div>
             {% else %}
             <section class="cart-empty">
@@ -93,6 +107,29 @@
             {% endif %}
         </div>
     </main>
+    {% if items %}
+    <script>
+        const cartLines = Array.from(document.querySelectorAll('[data-cart-line]'));
+        const selectedCount = document.getElementById('cartSelectionCount');
+        const selectedSubtotal = document.getElementById('cartSelectedSubtotal');
+        const estimatedTotal = document.getElementById('cartEstimatedTotal');
+        const checkoutButton = document.getElementById('cartCheckoutButton');
+
+        function updateCartSummary() {
+            const selected = cartLines.filter(line => line.querySelector('input[name="selected_products"]')?.checked);
+            const quantity = selected.reduce((sum, line) => sum + Number(line.dataset.quantity), 0);
+            const subtotal = selected.reduce((sum, line) => sum + Number(line.dataset.lineTotal), 0);
+            const available = selected.every(line => Number(line.dataset.quantity) <= Number(line.dataset.stock));
+            selectedCount.textContent = `${quantity} item${quantity === 1 ? '' : 's'} selected`;
+            selectedSubtotal.textContent = `৳ ${subtotal.toLocaleString('en-US')}`;
+            estimatedTotal.textContent = `৳ ${subtotal.toLocaleString('en-US')}`;
+            checkoutButton.disabled = selected.length === 0 || !available;
+            checkoutButton.textContent = selected.length === 0 ? 'Select at least one item' : (available ? 'Checkout selected items' : 'Review item availability');
+        }
+        cartLines.forEach(line => line.querySelector('input[name="selected_products"]')?.addEventListener('change', updateCartSummary));
+        updateCartSummary();
+    </script>
+    {% endif %}
     {% include "site_footer.html" %}
 </body>
 </html>
