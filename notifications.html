@@ -33,6 +33,16 @@
         {% endwith %}
 
         <section class="notification-list" aria-label="Your notifications">
+            {% if current_user_role == "superadmin" and pending_role_request_count %}
+            <a class="notification-card is-unread access-request-card" href="{{ url_for('admin_role_requests_page') }}">
+                <span class="notification-card-indicator" aria-hidden="true"></span>
+                <span class="notification-card-copy">
+                    <strong>Admin access requests</strong>
+                    <span>{{ pending_role_request_count }} pending request(s) need your review.</span>
+                </span>
+                <span class="notification-card-arrow" aria-hidden="true">→</span>
+            </a>
+            {% endif %}
             {% for notification in notifications %}
             <a class="notification-card{% if not notification.read_at %} is-unread{% endif %}"
                href="{{ url_for('open_notification', notification_id=notification.id) }}">

@@ -566,6 +566,7 @@ def csrf_context():
     current_user_name = None
     pending_role_request_count = 0
     unread_notification_count = 0
+    cart_count = 0
     if session.get("user_id"):
         with database() as connection:
             account = connection.execute(
@@ -579,6 +580,10 @@ def csrf_context():
                     "SELECT COUNT(*) FROM notifications WHERE account_id = ? AND read_at IS NULL",
                     (session["user_id"],),
                 ).fetchone()[0]
+                cart_count = connection.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) FROM cart_items WHERE account_id = ?",
+                    (session["user_id"],),
+                ).fetchone()[0]
                 if user_role == "superadmin":
                     pending_role_request_count = connection.execute(
                         "SELECT COUNT(*) FROM admin_role_requests WHERE status = 'pending'"
@@ -590,6 +595,7 @@ def csrf_context():
         "current_user_name": current_user_name,
         "pending_role_request_count": pending_role_request_count,
         "unread_notification_count": unread_notification_count,
+        "cart_count": cart_count,
     }
 
 

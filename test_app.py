@@ -274,10 +274,13 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
         self.assertIn(b"Add to Cart", response.data)
+        self.assertIn(b">View Details</a>", response.data)
         self.assertNotIn(b"continue as guest", response.data)
         self.assertIn(b"Add to Cart", self.client.get("/").data)
         product_detail = self.client.get("/products/casual-sneakers")
         self.assertIn(b"Order Now", product_detail.data)
+        self.assertIn(b'class="product-detail-add-cart"', product_detail.data)
+        self.assertIn(b'class="product-detail-actions"', product_detail.data)
         self.assertNotIn(b"Login to Buy", product_detail.data)
 
     def test_cart_add_update_remove_and_order_flow(self):
@@ -295,6 +298,8 @@ class AuthenticationFlowTests(unittest.TestCase):
             "product_slug": "casual-sneakers",
             "quantity": "2",
         })
+        header = self.client.get("/products")
+        self.assertIn(b'class="cart-nav-count" aria-label="3 items">3</span>', header.data)
         cart = self.client.get("/my-cart")
         self.assertEqual(cart.status_code, 200)
         self.assertIn(b"My Cart", cart.data)
@@ -772,8 +777,9 @@ class AuthenticationFlowTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'class="profile-trigger-role">Superadmin</span>', response.data)
-        self.assertIn(b'aria-label="2 pending access requests"', response.data)
+        self.assertIn(b'aria-label="Notifications, 2 unread"', response.data)
         self.assertIn(b'class="notification-count" aria-hidden="true">2</span>', response.data)
+        self.assertIn(b'/superadmin/admin-requests', response.data)
         self.assertIn(b'Superadmin Dashboard', response.data)
         self.assertIn(b'Access requests', response.data)
         self.assertIn(b'2 pending', response.data)

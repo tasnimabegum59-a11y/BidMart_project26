@@ -30,25 +30,15 @@
             </span>
         </button>
         <a class="notification-bell" href="{{ url_for('notifications_page') }}"
-           aria-label="Notifications, {{ unread_notification_count }} unread">
+           aria-label="Notifications, {{ unread_notification_count + pending_role_request_count }} unread">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
             </svg>
-            {% if unread_notification_count %}
-            <span class="notification-count" aria-hidden="true">{{ unread_notification_count }}</span>
+            {% set unread_total = unread_notification_count + pending_role_request_count %}
+            {% if unread_total %}
+            <span class="notification-count" aria-hidden="true">{{ unread_total }}</span>
             {% endif %}
         </a>
-        {% if current_user_role == "superadmin" %}
-        <a class="superadmin-notifications" href="{{ url_for('admin_role_requests_page') }}"
-           aria-label="{{ pending_role_request_count }} pending access requests">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
-            </svg>
-            {% if pending_role_request_count %}
-            <span class="notification-count" aria-hidden="true">{{ pending_role_request_count }}</span>
-            {% endif %}
-        </a>
-        {% endif %}
         {% endif %}
 
         <nav class="nav-links" aria-label="Main navigation">

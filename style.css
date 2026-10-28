@@ -701,6 +701,26 @@ a { /* সব link নির্বাচন করে */
     font-family: inherit;
 }
 
+.product-view-details-btn {
+    grid-column: 1 / -1;
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    margin: 0 0 8px;
+    border: 1px solid #16768a;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #155e6e;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.product-view-details-btn:hover,
+.product-view-details-btn:focus-visible {
+    background: #edf7f8;
+}
+
 .catalog-product-details {
     display: grid;
     gap: 5px;
@@ -911,11 +931,22 @@ a { /* সব link নির্বাচন করে */
     font-weight: 800;
 }
 
+.product-detail-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.product-detail-actions > input[type="hidden"] {
+    display: none;
+}
+
 .product-detail-quantity {
+    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 13px;
+    margin: 0 0 3px;
     color: var(--color-primary);
     font-size: 13px;
     font-weight: 700;
@@ -946,6 +977,30 @@ a { /* সব link নির্বাচন করে */
 .product-detail-buy:hover,
 .product-detail-buy:focus-visible {
     background: var(--color-primary);
+}
+
+.product-detail-add-cart {
+    min-height: 48px;
+    border: 1px solid #16768a;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #155e6e;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 800;
+}
+
+.product-detail-add-cart:hover,
+.product-detail-add-cart:focus-visible {
+    background: #edf7f8;
+}
+
+.product-detail-buy:disabled,
+.product-detail-add-cart:disabled {
+    border-color: #87969d;
+    background: #87969d;
+    color: #ffffff;
+    cursor: not-allowed;
 }
 
 .product-detail-purchase-note {
@@ -4505,8 +4560,95 @@ a { /* সব link নির্বাচন করে */
 }
 
 .single-registration {
-    grid-template-columns: minmax(0, 460px);
+    grid-template-columns: minmax(0, 760px);
     justify-content: center;
+}
+
+.register-page .page-container {
+    max-width: 860px;
+    padding-top: 24px;
+    padding-bottom: 32px;
+}
+
+.register-page .page-heading {
+    margin-bottom: 18px;
+}
+
+.register-page .page-heading h1 {
+    font-size: 30px;
+}
+
+.register-page .page-heading > p:last-child {
+    font-size: 13px;
+}
+
+.register-page .register-card {
+    padding: 18px 22px;
+}
+
+.register-page .role-icon,
+.register-page .user-card h2 {
+    display: inline-block;
+    margin: 0 8px 12px 0;
+    vertical-align: middle;
+}
+
+.registration-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 18px;
+}
+
+.registration-field {
+    min-width: 0;
+}
+
+.register-card .registration-field input,
+.register-card .registration-field select {
+    min-height: 38px;
+    margin-bottom: 0;
+    padding: 8px 10px;
+}
+
+.registration-role-note {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 7px 10px;
+    border-radius: 5px;
+    background: #eef7f8;
+    line-height: 1.35;
+}
+
+.register-page #registerForm .register-button {
+    min-height: 40px;
+    margin-top: 12px;
+}
+
+.register-page .user-card > .form-note {
+    margin: 10px 0 0;
+}
+
+.register-page .resend-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    align-items: end;
+    margin-top: 14px;
+    padding-top: 12px;
+}
+
+.register-page .resend-form label {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.register-page .resend-form input {
+    min-height: 38px;
+    margin: 0;
+}
+
+.register-page .resend-form .secondary-btn {
+    min-height: 38px;
 }
 
 .register-card select {
@@ -5701,4 +5843,13 @@ a.dashboard-item:focus-visible,
     .cart-layout .cart-item { grid-template-columns: 24px minmax(0, 1fr); }
     .cart-layout .cart-item-image { width: 100%; height: 120px; }
     .cart-layout .cart-item-controls { grid-column: 2; }
+}
+
+@media (max-width: 600px) {
+    .register-page .page-container { padding-top: 18px; }
+    .register-page .register-card { padding: 16px; }
+    .registration-fields,
+    .register-page .resend-form { grid-template-columns: 1fr; }
+    .registration-role-note,
+    .register-page .resend-form label { grid-column: 1; }
 }
