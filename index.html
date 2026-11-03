@@ -201,22 +201,18 @@
                 </article>
                 {% endfor %}
             </div>
-            <button
+            <a
                 class="show-all-products"
-                id="showAllProducts"
-                type="button"
-                aria-controls="productGrid"
-                aria-expanded="false"
+                href="{{ url_for('products_page') }}"
             >
-                Show all
-            </button>
+                See All Products
+            </a>
         </div> <!-- Products container শেষ -->
     </section> <!-- Products Section শেষ -->
 
     <script>
         const productCards = document.querySelectorAll("#productGrid .product-card");
-        const showAllProductsButton = document.getElementById("showAllProducts");
-        const initiallyVisibleProductCount = 4;
+        const initiallyVisibleProductCount = 8;
 
         if (productCards.length > initiallyVisibleProductCount) {
             const additionalProductCards = Array.from(productCards).slice(initiallyVisibleProductCount);
@@ -224,19 +220,6 @@
             additionalProductCards.forEach(function(card) {
                 card.hidden = true;
             });
-
-            showAllProductsButton.addEventListener("click", function() {
-                const isExpanded = showAllProductsButton.getAttribute("aria-expanded") === "true";
-
-                additionalProductCards.forEach(function(card) {
-                    card.hidden = isExpanded;
-                });
-
-                showAllProductsButton.setAttribute("aria-expanded", String(!isExpanded));
-                showAllProductsButton.textContent = isExpanded ? "Show all" : "Show less";
-            });
-        } else {
-            showAllProductsButton.hidden = true;
         }
     </script>
 

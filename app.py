@@ -932,7 +932,7 @@ def home():
     products_by_slug = {product["slug"]: product for product in get_products()}
     featured_products = [
         products_by_slug[product["slug"]]
-        for product in PRODUCT_CATALOG[:6]
+        for product in PRODUCT_CATALOG[:8]
         if product["slug"] in products_by_slug
     ]
     with database() as connection:

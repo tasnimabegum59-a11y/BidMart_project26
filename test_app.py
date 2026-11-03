@@ -210,12 +210,15 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
         self.assertIn(b'class="product-grid catalog-grid" id="productGrid"', home.data)
-        self.assertEqual(home.data.count(b'class="product-card"'), 6)
-        self.assertIn(b"const initiallyVisibleProductCount = 4;", home.data)
-        self.assertEqual(home.data.count(b'action="/cart/add"'), 6)
-        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 6)
-        self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
-        for product in bidmart.PRODUCT_CATALOG[:6]:
+        self.assertEqual(home.data.count(b'class="product-card"'), 8)
+        self.assertIn(b"const initiallyVisibleProductCount = 8;", home.data)
+        self.assertIn(b'class="show-all-products"', home.data)
+        self.assertIn(b'href="/products"', home.data)
+        self.assertIn(b"See All Products", home.data)
+        self.assertEqual(home.data.count(b'action="/cart/add"'), 8)
+        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 8)
+        self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 8)
+        for product in bidmart.PRODUCT_CATALOG[:8]:
             self.assertIn(
                 f'href="/products/{product["slug"]}" class="product-btn product-buy-btn"'.encode(),
                 home.data,
@@ -281,6 +284,11 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertEqual(response.data.count(b'class="product-card"'), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"26% OFF", response.data)
         self.assertEqual(response.data.count(b"REGULAR PRICE"), 3)
+        self.assertIn(b'class="catalog-product-discount"', response.data)
+        self.assertIn(b"<span>Original price</span>", response.data)
+        self.assertIn(b"<span>Offer price</span>", response.data)
+        self.assertIn('class="auction-list-original">৳ 125,000</strong>'.encode(), response.data)
+        self.assertIn('class="auction-list-current">৳ 92,500</strong>'.encode(), response.data)
         self.assertEqual(
             response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
@@ -466,6 +474,13 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"Related Products", response.data)
                 self.assertIn(b"10 in stock", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
+                self.assertIn(
+                    f'data-unit-price="{product["price"]}"'.encode(),
+                    response.data,
+                )
+                self.assertIn(b'id="productCurrentPrice"', response.data)
+                self.assertIn(b'id="productPriceTotalLabel"', response.data)
+                self.assertIn(b"Total for 1 item", response.data)
 
     def test_checkout_requires_login_and_registered_buyer_can_confirm_order(self):
         start = self.start_checkout(quantity="2", as_guest=True)
@@ -1099,7 +1114,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"Manage this product", product_catalog.data)
         self.assertIn(b"#product-casual-sneakers", product_catalog.data)
         home = self.client.get("/")
-        self.assertEqual(home.data.count(b">Manage this product</a>"), 6)
+        self.assertEqual(home.data.count(b">Manage this product</a>"), 8)
         self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', home.data)
         self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', self.client.get(
             "/products/iphone-14-pro-max-256gb"

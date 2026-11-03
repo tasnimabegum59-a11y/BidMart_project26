@@ -29,6 +29,11 @@
                     <article class="product-card" id="product-{{ loop.index }}">
                         <div class="product-main">
                             <div class="product-visual">
+                                {% if product.old_price and product.old_price > product.price %}
+                                <span class="catalog-product-discount">
+                                    {{ (((product.old_price - product.price) / product.old_price) * 100)|round|int }}% OFF
+                                </span>
+                                {% endif %}
                                 {% if product.image %}
                                 <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
                                 {% else %}
@@ -43,14 +48,23 @@
                             </div>
                         </div>
                         <div class="product-purchase">
-                            {% if product.old_price %}
-                            <span class="product-discount">★ {{ (((product.old_price - product.price) / product.old_price) * 100)|round|int }}% OFF</span>
-                            <p class="old-price">৳ {{ "{:,}".format(product.old_price) }}</p>
+                            {% if product.old_price and product.old_price > product.price %}
+                            <div class="auction-list-prices catalog-product-prices">
+                                <div>
+                                    <span>Original price</span>
+                                    <strong class="auction-list-original">৳ {{ "{:,}".format(product.old_price) }}</strong>
+                                </div>
+                                <div>
+                                    <span>Offer price</span>
+                                    <strong class="auction-list-current">৳ {{ "{:,}".format(product.price) }}</strong>
+                                </div>
+                            </div>
                             {% else %}
-                            <span class="product-discount product-regular-price">REGULAR PRICE</span>
-                            <span aria-hidden="true"></span>
+                            <div class="catalog-regular-price">
+                                <span class="product-discount product-regular-price">REGULAR PRICE</span>
+                                <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
+                            </div>
                             {% endif %}
-                            <p class="price">৳ {{ "{:,}".format(product.price) }}</p>
                             <a class="product-btn product-view-details-btn" href="{{ url_for('product_details_page', slug=product.slug) }}">View Details</a>
                             <div class="product-actions">
                                 <form method="post" action="{{ url_for('add_to_cart') }}">

@@ -2278,6 +2278,8 @@ a { /* সব link নির্বাচন করে */
     cursor: pointer;
     font: inherit;
     font-weight: 700;
+    text-align: center;
+    text-decoration: none;
     transition: background-color 160ms ease;
 }
 
@@ -5908,10 +5910,21 @@ body {
     transition: color 160ms ease, background-color 160ms ease;
 }
 
-.nav-links a:hover,
 .nav-links a.active {
-    background: #ffffff;
+    background: #F2A900;
     color: var(--color-primary);
+}
+
+.nav-links a:hover,
+.nav-links a:focus-visible {
+    background: #CC6F00;
+    color: #ffffff;
+}
+
+.nav-links a.active:hover,
+.nav-links a.active:focus-visible {
+    background: #CC6F00;
+    color: #ffffff;
 }
 
 .nav-links a.active::after {
@@ -7148,5 +7161,191 @@ body {
 
     .catalog-grid .product-visual {
         height: 210px;
+    }
+}
+
+.catalog-grid {
+    gap: 14px;
+}
+
+.catalog-grid .product-card {
+    border-radius: 16px;
+}
+
+.catalog-grid .product-main {
+    grid-template-columns: minmax(84px, 0.72fr) minmax(0, 1.28fr);
+    align-items: center;
+    gap: 9px;
+    padding: 9px 9px 0;
+}
+
+.catalog-grid .product-visual {
+    height: clamp(110px, 9.5vw, 135px);
+    border-radius: 12px;
+}
+
+.catalog-grid .catalog-product-discount {
+    position: absolute;
+    z-index: 1;
+    top: 8px;
+    left: 8px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: #d94d3f;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.catalog-grid .product-visual img {
+    padding: 7px;
+    object-fit: contain;
+}
+
+.catalog-grid .catalog-product-icon {
+    font-size: 46px;
+}
+
+.catalog-grid .product-info {
+    padding: 0 3px 4px;
+}
+
+.catalog-grid .product-info .category {
+    margin-bottom: 3px;
+    font-size: 8px;
+}
+
+.catalog-grid .product-info h2,
+.catalog-grid .product-info h3 {
+    min-height: 0;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.catalog-grid .product-rating {
+    margin-bottom: 4px;
+    font-size: 9px;
+}
+
+.catalog-grid .product-description {
+    min-height: 0;
+    margin-bottom: 4px;
+    -webkit-line-clamp: 1;
+}
+
+.catalog-grid .product-purchase {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 7px 10px 10px;
+}
+
+.catalog-grid .catalog-product-prices {
+    width: 100%;
+    margin-bottom: 2px;
+}
+
+.catalog-grid .catalog-regular-price {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.catalog-grid .catalog-regular-price .price {
+    margin: 0;
+    font-size: 16px;
+}
+
+.catalog-grid .product-view-details-btn,
+.catalog-grid .product-actions .product-btn {
+    min-height: 32px;
+    margin-top: 2px;
+    font-size: 10px;
+}
+
+.auction-list-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.auction-list-card {
+    border-radius: 16px;
+}
+
+.auction-list-image {
+    min-height: 0;
+    height: 150px;
+}
+
+.auction-list-content {
+    padding: 12px;
+}
+
+.auction-list-content h2 {
+    margin-bottom: 5px;
+    font-size: 15px;
+}
+
+.auction-list-description {
+    display: -webkit-box;
+    min-height: 0;
+    margin-bottom: 9px;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.auction-list-prices {
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 8px;
+}
+
+.auction-list-prices strong {
+    font-size: 13px;
+}
+
+.auction-list-time {
+    margin-bottom: 9px;
+    font-size: 11px;
+}
+
+.auction-card-bid {
+    min-height: 34px;
+    padding: 7px 12px;
+    font-size: 12px;
+}
+
+@media (max-width: 1050px) {
+    .auction-list-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 800px) {
+    .auction-list-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .catalog-grid .product-main {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .catalog-grid .product-visual {
+        height: clamp(130px, 40vw, 170px);
+    }
+}
+
+@media (max-width: 420px) {
+    .catalog-grid .product-visual {
+        height: 150px;
+    }
+
+    .auction-list-grid {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
