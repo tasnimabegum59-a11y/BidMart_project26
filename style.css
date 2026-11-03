@@ -5905,26 +5905,27 @@ body {
 .nav-links a {
     padding: 9px 14px;
     border-radius: 999px;
-    color: #73817c;
+    background: #FFD166;
+    color: #1b1b1b;
     font-size: 13px;
     transition: color 160ms ease, background-color 160ms ease;
 }
 
 .nav-links a.active {
-    background: #F2A900;
-    color: var(--color-primary);
+    background: #FFD166;
+    color: #1b1b1b;
 }
 
 .nav-links a:hover,
 .nav-links a:focus-visible {
-    background: #CC6F00;
-    color: #ffffff;
+    background: #FF9F1C;
+    color: #1b1b1b;
 }
 
 .nav-links a.active:hover,
 .nav-links a.active:focus-visible {
-    background: #CC6F00;
-    color: #ffffff;
+    background: #FF9F1C;
+    color: #1b1b1b;
 }
 
 .nav-links a.active::after {
