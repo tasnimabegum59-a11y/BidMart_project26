@@ -7453,3 +7453,32 @@ body {
     color: #1b1b1b;
     filter: none;
 }
+
+.account-pitch {
+    background: #2E6B45;
+}
+
+.account-tabs a,
+.account-tabs a.is-active {
+    background: #FFD166;
+    color: #1b1b1b;
+}
+
+.account-tabs a:hover,
+.account-tabs a:focus-visible {
+    background: #FF9F1C;
+    color: #1b1b1b;
+}
+
+.account-form-panel .register-card .register-button {
+    border-color: #FFD166;
+    background: #FFD166;
+    color: #1b1b1b;
+}
+
+.account-form-panel .register-card .register-button:hover,
+.account-form-panel .register-card .register-button:focus-visible {
+    border-color: #FF9F1C;
+    background: #FF9F1C;
+    color: #1b1b1b;
+}
