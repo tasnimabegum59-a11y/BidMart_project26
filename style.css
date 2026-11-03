@@ -5857,22 +5857,28 @@ a.dashboard-item:focus-visible,
 }
 
 :root {
-    --color-primary: #10241f;
-    --color-secondary: #315b4e;
-    --color-accent: #8bd9b3;
-    --color-surface: #f3f6f1;
-    --color-border: #e0e8e1;
+    --color-primary: #12372D;
+    --color-secondary: #23734D;
+    --color-accent: #F4C95D;
+    --color-surface: #F6F8F5;
+    --color-border: #D9E2DD;
+    --color-text: #25332E;
+    --color-muted: #586760;
+    --color-input: #FAFBF9;
+    --color-info: #245A81;
+    --color-error: #B42332;
+    --color-focus: #245A81;
 }
 
 body {
-    color: var(--color-primary);
-    background: #f7f8f4;
+    color: var(--color-text);
+    background: var(--color-surface);
     font-family: Inter, "Segoe UI", Arial, sans-serif;
 }
 
 .header {
-    background: rgba(248, 249, 246, 0.97);
-    border-bottom-color: #e7ece6;
+    background: rgba(255, 255, 255, 0.97);
+    border-bottom-color: var(--color-border);
     backdrop-filter: blur(14px);
 }
 
@@ -5905,27 +5911,27 @@ body {
 .nav-links a {
     padding: 9px 14px;
     border-radius: 999px;
-    background: #FFD166;
-    color: #1b1b1b;
+    background: transparent;
+    color: var(--color-text);
     font-size: 13px;
     transition: color 160ms ease, background-color 160ms ease;
 }
 
 .nav-links a.active {
-    background: #FFD166;
-    color: #1b1b1b;
+    background: var(--color-primary);
+    color: #ffffff;
 }
 
 .nav-links a:hover,
 .nav-links a:focus-visible {
-    background: #FF9F1C;
-    color: #1b1b1b;
+    background: var(--color-accent);
+    color: var(--color-text);
 }
 
 .nav-links a.active:hover,
 .nav-links a.active:focus-visible {
-    background: #FF9F1C;
-    color: #1b1b1b;
+    background: var(--color-secondary);
+    color: #ffffff;
 }
 
 .nav-links a.active::after {
@@ -7351,122 +7357,309 @@ body {
     }
 }
 
-.primary-btn,
-.register-btn,
-.register-button,
-.promo-auction-button,
-.promo-shop-button,
-.role-request-approve,
-.product-detail-buy:not(:disabled),
-.checkout-submit:not(:disabled),
-.auction-place-bid:not(:disabled),
-.auction-card-bid:not(.is-disabled),
-.cart-order-button:not(:disabled),
-.admin-action-primary:not(:disabled),
-.show-all-products,
-.profile-trigger,
-.account-nav-link {
-    border-color: #FFD166;
-    background: #FFD166;
-    color: #1b1b1b;
+.hero,
+.footer {
+    background: var(--color-surface);
+}
+
+.product-card,
+.auction-list-card,
+.account-auth-layout,
+.account-form-panel,
+.checkout-form,
+.checkout-summary,
+.cart-item,
+.cart-summary,
+.dashboard-card,
+.admin-card {
+    border-color: var(--color-border);
+    background-color: #ffffff;
+}
+
+.product-card,
+.auction-list-card {
+    box-shadow: 0 6px 20px rgba(18, 55, 45, 0.06);
 }
 
 .product-btn {
-    border-color: #FFD166;
-    color: #1b1b1b;
+    border-color: var(--color-border);
+    background: #ffffff;
+    color: var(--color-primary);
 }
 
+.product-view-details-btn {
+    border: 1px solid var(--color-border);
+    background: #ffffff;
+    color: var(--color-primary);
+}
+
+.product-details-btn,
+.product-detail-add-cart,
+.auction-place-bid,
+.auction-card-bid:not(.is-disabled),
+.cart-order-button:not(:disabled),
+.checkout-submit:not(:disabled),
+.admin-action-primary:not(:disabled),
+.role-request-approve {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: #ffffff;
+}
+
+.product-buy-btn:not(:disabled),
+.catalog-grid .product-actions .product-buy-btn:not(:disabled),
+.show-all-products,
+.primary-btn,
+.register-btn,
+.register-button,
+.account-nav-link {
+    border-color: #F4C95D;
+    background: #F4C95D;
+    color: #25332E;
+}
+
+.product-detail-buy:not(:disabled),
+.promo-auction-button,
+.promo-shop-button {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: #ffffff;
+}
+
+.product-btn:hover,
+.product-btn:focus-visible {
+    border-color: #D9E2DD;
+    background: #F6F8F5;
+    color: var(--color-primary);
+    filter: none;
+}
+
+.product-view-details-btn:hover,
+.product-view-details-btn:focus-visible {
+    border-color: var(--color-secondary);
+    background: #F6F8F5;
+    color: var(--color-primary);
+}
+
+.product-details-btn:hover,
+.product-details-btn:focus-visible,
+.catalog-grid .product-actions .product-details-btn:hover,
+.catalog-grid .product-actions .product-details-btn:focus-visible,
+.product-detail-add-cart:hover,
+.product-detail-add-cart:focus-visible,
+.auction-place-bid:hover,
+.auction-place-bid:focus-visible,
+.auction-card-bid:not(.is-disabled):hover,
+.auction-card-bid:not(.is-disabled):focus-visible,
+.cart-order-button:not(:disabled):hover,
+.cart-order-button:not(:disabled):focus-visible,
+.checkout-submit:not(:disabled):hover,
+.checkout-submit:not(:disabled):focus-visible,
+.admin-action-primary:not(:disabled):hover,
+.admin-action-primary:not(:disabled):focus-visible,
+.role-request-approve:hover,
+.role-request-approve:focus-visible,
+.product-detail-buy:not(:disabled):hover,
+.product-detail-buy:not(:disabled):focus-visible,
+.promo-auction-button:hover,
+.promo-auction-button:focus-visible,
+.promo-shop-button:hover,
+.promo-shop-button:focus-visible {
+    border-color: var(--color-secondary);
+    background: var(--color-secondary);
+    color: #ffffff;
+    filter: none;
+}
+
+.product-buy-btn:not(:disabled):hover,
+.product-buy-btn:not(:disabled):focus-visible,
+.catalog-grid .product-actions .product-buy-btn:not(:disabled):hover,
+.catalog-grid .product-actions .product-buy-btn:not(:disabled):focus-visible,
+.show-all-products:hover,
+.show-all-products:focus-visible,
 .primary-btn:hover,
 .primary-btn:focus-visible,
 .register-btn:hover,
 .register-btn:focus-visible,
 .register-button:hover,
 .register-button:focus-visible,
-.promo-auction-button:hover,
-.promo-auction-button:focus-visible,
-.promo-shop-button:hover,
-.promo-shop-button:focus-visible,
-.role-request-approve:hover,
-.role-request-approve:focus-visible,
-.product-detail-buy:not(:disabled):hover,
-.product-detail-buy:not(:disabled):focus-visible,
-.checkout-submit:not(:disabled):hover,
-.checkout-submit:not(:disabled):focus-visible,
-.auction-place-bid:not(:disabled):hover,
-.auction-place-bid:not(:disabled):focus-visible,
-.auction-card-bid:not(.is-disabled):hover,
-.auction-card-bid:not(.is-disabled):focus-visible,
-.cart-order-button:not(:disabled):hover,
-.cart-order-button:not(:disabled):focus-visible,
-.admin-action-primary:not(:disabled):hover,
-.admin-action-primary:not(:disabled):focus-visible,
-.show-all-products:hover,
-.show-all-products:focus-visible,
-.profile-trigger:hover,
-.profile-trigger:focus-visible,
 .account-nav-link:hover,
 .account-nav-link:focus-visible {
-    border-color: #FF9F1C;
-    background: #FF9F1C;
-    color: #1b1b1b;
+    border-color: #E6B943;
+    background: #E6B943;
+    color: #25332E;
     filter: none;
 }
 
-.product-btn.product-buy-btn:not(:disabled),
-.catalog-grid .product-actions .product-btn.product-buy-btn:not(:disabled),
-.show-all-products {
-    border-color: #2E6B45;
-    background: #2E6B45;
-    color: #ffffff;
-}
-
-.product-btn.product-buy-btn:not(:disabled):hover,
-.product-btn.product-buy-btn:not(:disabled):focus-visible,
-.catalog-grid .product-actions .product-btn.product-buy-btn:not(:disabled):hover,
-.catalog-grid .product-actions .product-btn.product-buy-btn:not(:disabled):focus-visible,
-.show-all-products:hover,
-.show-all-products:focus-visible {
-    border-color: #0B3C26;
-    background: #0B3C26;
-    color: #ffffff;
-    filter: none;
-}
-
-.product-btn:not(.product-buy-btn):hover,
-.product-btn:not(.product-buy-btn):focus-visible,
-.catalog-grid .product-actions .product-btn:not(.product-buy-btn):not(:disabled) {
-    border-color: #FFD166;
-    background: #FFD166;
-    color: #1b1b1b;
-}
-
-.product-btn:not(.product-buy-btn):hover,
-.product-btn:not(.product-buy-btn):focus-visible {
-    border-color: #FF9F1C;
-    background: #FF9F1C;
-}
-
-.catalog-grid .product-actions .product-btn:not(.product-buy-btn):not(:disabled):hover,
-.catalog-grid .product-actions .product-btn:not(.product-buy-btn):not(:disabled):focus-visible {
-    border-color: #FF9F1C;
-    background: #FF9F1C;
-    color: #1b1b1b;
-    filter: none;
-}
-
+.register-page .account-pitch,
 .account-pitch {
-    background: #2E6B45;
+    background: var(--color-primary);
+}
+
+.account-pitch-icon {
+    background: #F4C95D;
+    color: var(--color-primary);
+}
+
+.account-pitch .eyebrow,
+.account-pitch-footnote {
+    color: #E4EDE7;
+}
+
+.account-pitch > p:not(.eyebrow) {
+    color: #F0F4F1;
+}
+
+.account-tabs a {
+    color: var(--color-muted);
+}
+
+.account-tabs a.is-active {
+    background: #ffffff;
+    color: var(--color-primary);
 }
 
 .account-form-panel .register-card .register-button {
-    border-color: #FFD166;
-    background: #FFD166;
-    color: #1b1b1b;
+    border-color: #F4C95D;
+    background: #F4C95D;
+    color: #25332E;
 }
 
 .account-form-panel .register-card .register-button:hover,
 .account-form-panel .register-card .register-button:focus-visible {
-    border-color: #FF9F1C;
-    background: #FF9F1C;
-    color: #1b1b1b;
+    border-color: #E6B943;
+    background: #E6B943;
+    color: #25332E;
+}
+
+.register-card input:not([type="checkbox"]):not([type="radio"]),
+.register-card select,
+.admin-product-form input,
+.admin-product-form select,
+.admin-product-form textarea,
+.cart-quantity-form input,
+.checkout-field input,
+.checkout-field select,
+.checkout-field textarea {
+    border-color: var(--color-border);
+    background-color: var(--color-input);
+}
+
+.checkout-page,
+.order-page {
+    background: var(--color-surface);
+}
+
+.checkout-form,
+.checkout-summary,
+.order-confirmation-card,
+.cart-item,
+.cart-summary,
+.admin-dashboard-hero,
+.admin-dashboard-section,
+.admin-stats article,
+.admin-create-panel,
+.admin-product-card,
+.admin-account-card,
+.dashboard-card {
+    border-color: var(--color-border);
+    background: #ffffff;
+    box-shadow: 0 5px 18px rgba(18, 55, 45, 0.05);
+}
+
+.admin-dashboard-hero {
+    background: var(--color-surface);
+}
+
+.superadmin-control-panel {
+    border-color: var(--color-border);
+    background: #ffffff;
+    box-shadow: 0 5px 18px rgba(18, 55, 45, 0.05);
+}
+
+.superadmin-control-icon {
+    background: #F6F8F5;
+    color: var(--color-primary);
+}
+
+.superadmin-control-copy .eyebrow,
+.superadmin-control-copy h2,
+.superadmin-control-link,
+.superadmin-control-link strong {
+    color: var(--color-primary);
+}
+
+.dashboard-panel {
+    background: var(--color-primary);
+}
+
+.dashboard-heading,
+.dashboard-logout-form {
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+a.dashboard-item:hover,
+a.dashboard-item:focus-visible,
+.dashboard-item.is-active {
+    background: var(--color-secondary);
+    color: #ffffff;
+}
+
+.admin-dashboard-nav {
+    border-color: var(--color-border);
+    background: rgba(255, 255, 255, 0.97);
+}
+
+.admin-dashboard-nav a {
+    color: var(--color-text);
+}
+
+.admin-dashboard-nav a:hover,
+.admin-dashboard-nav a:focus-visible,
+.admin-dashboard-nav a.is-active {
+    background: var(--color-primary);
+    color: #ffffff;
+}
+
+.cart-page,
+.profile-page,
+.admin-dashboard,
+.role-requests-page,
+.notifications-page {
+    background: var(--color-surface);
+}
+
+.dashboard-panel .dashboard-logout,
+.dashboard-panel .dashboard-logout:hover,
+.dashboard-panel .dashboard-logout:focus-visible {
+    color: #F0F4F1;
+}
+
+.dashboard-panel .dashboard-logout:hover,
+.dashboard-panel .dashboard-logout:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.form-message.error,
+.error-message {
+    border-color: #E6B4BA;
+    background: #FFF4F4;
+    color: var(--color-error);
+}
+
+.form-message.info,
+.info-message {
+    border-color: #B7CDDF;
+    background: #F1F7FB;
+    color: var(--color-info);
+}
+
+:focus-visible {
+    outline: 3px solid var(--color-focus) !important;
+    outline-offset: 3px !important;
+}
+
+:disabled,
+.is-disabled {
+    cursor: not-allowed;
 }
