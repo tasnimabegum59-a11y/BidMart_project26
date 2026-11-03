@@ -260,8 +260,8 @@
                     <label class="admin-field-wide">Description<textarea name="description" maxlength="1000" rows="2" required></textarea></label>
                     <label class="admin-field-wide">Features, comma separated<input name="features" placeholder="Fast delivery, 1-year warranty"></label>
                     <label>Starting bid (৳)<input name="starting_bid" type="number" min="1" required></label>
-                    <label>Minimum increment (৳)<input name="minimum_increment" type="number" min="1" required></label>
                     <label id="auctionDurationLabel">Duration (days)<input name="duration_days" type="number" min="1" max="90" required></label>
+                    <p class="admin-field-wide auction-increment-note">Automatic bid increases: ৳500 below ৳50,000, then ৳100.</p>
                     <div class="admin-form-actions">
                         <button class="admin-action-primary" id="auctionSubmitButton" type="submit">Publish auction</button>
                         <button class="admin-action-secondary" id="auctionCancelEdit" type="button" hidden>Cancel edit</button>
@@ -287,7 +287,6 @@
                             data-icon="{{ auction.icon or '' }}"
                             data-show-in-catalog="{{ 1 if auction.show_in_catalog else 0 }}"
                             data-starting-bid="{{ auction.starting_bid }}"
-                            data-minimum-increment="{{ auction.minimum_increment }}"
                             data-is-active="{{ 1 if auction.is_active else 0 }}">Edit auction</button>
                         {% if auction.is_active %}
                         <form action="{{ url_for('admin_close_auction', slug=auction.slug) }}" method="post">
@@ -317,8 +316,6 @@
                         form.action = "{{ url_for('admin_create_auction') }}";
                         form.elements.slug.readOnly = false;
                         form.elements.starting_bid.disabled = false;
-                        form.elements.minimum_increment.disabled = false;
-                        form.elements.minimum_increment.required = true;
                         imageInput.required = true;
                         imagePreview.hidden = true;
                         imagePreview.textContent = "";
@@ -343,9 +340,6 @@
                             form.elements.show_in_catalog.value = button.dataset.showInCatalog;
                             form.elements.starting_bid.value = button.dataset.startingBid;
                             form.elements.starting_bid.disabled = true;
-                            form.elements.minimum_increment.value = button.dataset.minimumIncrement;
-                            form.elements.minimum_increment.disabled = !isActive;
-                            form.elements.minimum_increment.required = isActive;
                             imageInput.required = false;
                             imagePreview.hidden = !button.dataset.image && !button.dataset.icon;
                             imagePreview.textContent = button.dataset.image

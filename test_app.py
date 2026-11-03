@@ -24,6 +24,20 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.client = bidmart.app.test_client()
         self.email = "flow-test@example.invalid"
 
+    def test_homepage_loads_when_featured_auction_is_inactive(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET is_active = 0 WHERE slug = ?",
+                (bidmart.DEMO_AUCTION_SLUG,),
+            )
+
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b'id="homeAuctionCountdown"', response.data)
+        self.assertIn(b'class="promotional-card promotional-discount"', response.data)
+        self.assertIn(b'id="productGrid"', response.data)
+
     def tearDown(self):
         bidmart.DATABASE = self.original_database
         self.temp_dir.cleanup()
@@ -195,11 +209,16 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertLess(home.data.index(b'class="promotional-cards"'), home.data.index(b'id="products"'))
         self.assertIn(b'class="container promotional-grid"', home.data)
         self.assertEqual(home.data.count(b'class="promotional-card '), 2)
-        self.assertEqual(home.data.count(b'class="product-card"'), 6)
-        self.assertEqual(home.data.count(b'action="/cart/add"'), 6)
-        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 6)
-        self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 6)
-        for product in bidmart.PRODUCT_CATALOG[:6]:
+        self.assertIn(b'class="product-grid catalog-grid" id="productGrid"', home.data)
+        self.assertEqual(home.data.count(b'class="product-card"'), 8)
+        self.assertIn(b"const initiallyVisibleProductCount = 8;", home.data)
+        self.assertIn(b'class="show-all-products"', home.data)
+        self.assertIn(b'href="/products"', home.data)
+        self.assertIn(b"See All Products", home.data)
+        self.assertEqual(home.data.count(b'action="/cart/add"'), 8)
+        self.assertEqual(home.data.count(b'class="product-btn product-buy-btn"'), 8)
+        self.assertEqual(home.data.count(b'class="product-btn product-details-btn"'), 8)
+        for product in bidmart.PRODUCT_CATALOG[:8]:
             self.assertIn(
                 f'href="/products/{product["slug"]}" class="product-btn product-buy-btn"'.encode(),
                 home.data,
@@ -239,11 +258,13 @@ class AuthenticationFlowTests(unittest.TestCase):
         hero_image.close()
         self.assertIn(b'id="profileTrigger"', home.data)
         self.assertIn(b'aria-label="Open dashboard for Test Account"', home.data)
+        self.assertIn(b'class="profile-trigger-name">Test Account</span>', home.data)
+        self.assertIn(b"Welcome back to BidMart, Test Account", home.data)
         self.assertLess(home.data.index(b'class="logo"'), home.data.index(b'class="profile-trigger"'))
         self.assertLess(home.data.index(b'class="profile-trigger"'), home.data.index(b'<nav class="nav-links" aria-label="Main navigation">'))
         self.assertLess(home.data.index(b'href="index.html" class="active" aria-current="page">Home'), home.data.index(b'href="/products">Products'))
         self.assertLess(home.data.index(b'href="/products">Products'), home.data.index(b'href="/auctions">Auctions'))
-        self.assertLess(home.data.index(b'href="/auctions">Auctions'), home.data.index(b'href="#about">About'))
+        self.assertLess(home.data.index(b'href="/auctions">Auctions'), home.data.index(b'>Dashboard</a>'))
         self.assertIn(b"Personal Dashboard", home.data)
         self.assertIn(b"Logout", home.data)
         self.assertIn(b"Coming soon", home.data)
@@ -259,10 +280,15 @@ class AuthenticationFlowTests(unittest.TestCase):
         response = self.client.get("/products")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"<h1>All Products</h1>", response.data)
+        self.assertIn(b"<h1>Objects worth keeping.</h1>", response.data)
         self.assertEqual(response.data.count(b'class="product-card"'), len(bidmart.PRODUCT_CATALOG))
         self.assertIn(b"26% OFF", response.data)
         self.assertEqual(response.data.count(b"REGULAR PRICE"), 3)
+        self.assertIn(b'class="catalog-product-discount"', response.data)
+        self.assertIn(b"<span>Original price</span>", response.data)
+        self.assertIn(b"<span>Offer price</span>", response.data)
+        self.assertIn('class="auction-list-original">৳ 125,000</strong>'.encode(), response.data)
+        self.assertIn('class="auction-list-current">৳ 92,500</strong>'.encode(), response.data)
         self.assertEqual(
             response.data.count(b'class="product-btn product-details-btn"'),
             len(bidmart.PRODUCT_CATALOG),
@@ -274,10 +300,13 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b'aria-current="page">Products</a>', response.data)
         self.assertIn(b'href="/products">Products</a>', self.client.get("/").data)
         self.assertIn(b"Add to Cart", response.data)
+        self.assertIn(b">View Details</a>", response.data)
         self.assertNotIn(b"continue as guest", response.data)
         self.assertIn(b"Add to Cart", self.client.get("/").data)
         product_detail = self.client.get("/products/casual-sneakers")
         self.assertIn(b"Order Now", product_detail.data)
+        self.assertIn(b'class="product-detail-add-cart"', product_detail.data)
+        self.assertIn(b'class="product-detail-actions"', product_detail.data)
         self.assertNotIn(b"Login to Buy", product_detail.data)
 
     def test_cart_add_update_remove_and_order_flow(self):
@@ -295,17 +324,19 @@ class AuthenticationFlowTests(unittest.TestCase):
             "product_slug": "casual-sneakers",
             "quantity": "2",
         })
+        header = self.client.get("/products")
+        self.assertIn(b'class="cart-nav-count" aria-label="3 items">3</span>', header.data)
         cart = self.client.get("/my-cart")
         self.assertEqual(cart.status_code, 200)
         self.assertIn(b"My Cart", cart.data)
         self.assertIn(b"Casual Sneakers", cart.data)
         self.assertIn(b'value="3"', cart.data)
-        self.assertIn(b'action="/checkout/start"', cart.data)
-        self.assertIn(b"Order Now", cart.data)
-        checkout = self.client.post("/checkout/start", data={
+        self.assertIn(b'action="/checkout/from-cart"', cart.data)
+        self.assertIn(b'name="selected_products"', cart.data)
+        self.assertIn(b"Checkout selected items", cart.data)
+        checkout = self.client.post("/checkout/from-cart", data={
             "csrf_token": csrf,
-            "product_slug": "casual-sneakers",
-            "quantity": "3",
+            "selected_products": ["casual-sneakers"],
         })
         self.assertEqual(checkout.headers["Location"], "/checkout")
         self.assertIn(b"Delivery and payment", self.client.get("/checkout").data)
@@ -443,6 +474,13 @@ class AuthenticationFlowTests(unittest.TestCase):
                 self.assertIn(b"Related Products", response.data)
                 self.assertIn(b"10 in stock", response.data)
                 self.assertEqual(response.data.count(b'class="related-product-card"'), 4)
+                self.assertIn(
+                    f'data-unit-price="{product["price"]}"'.encode(),
+                    response.data,
+                )
+                self.assertIn(b'id="productCurrentPrice"', response.data)
+                self.assertIn(b'id="productPriceTotalLabel"', response.data)
+                self.assertIn(b"Total for 1 item", response.data)
 
     def test_checkout_requires_login_and_registered_buyer_can_confirm_order(self):
         start = self.start_checkout(quantity="2", as_guest=True)
@@ -772,8 +810,9 @@ class AuthenticationFlowTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'class="profile-trigger-role">Superadmin</span>', response.data)
-        self.assertIn(b'aria-label="2 pending access requests"', response.data)
+        self.assertIn(b'aria-label="Notifications, 2 unread"', response.data)
         self.assertIn(b'class="notification-count" aria-hidden="true">2</span>', response.data)
+        self.assertIn(b'/superadmin/admin-requests', response.data)
         self.assertIn(b'Superadmin Dashboard', response.data)
         self.assertIn(b'Access requests', response.data)
         self.assertIn(b'2 pending', response.data)
@@ -793,6 +832,7 @@ class AuthenticationFlowTests(unittest.TestCase):
     def test_homepage_about_describes_bidmart_shopping_and_auctions(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Welcome to BidMart", response.data)
         self.assertIn(b"ABOUT BIDMART", response.data)
         self.assertIn(b"Shopping and bidding, all in one place", response.data)
         self.assertIn(b"online shopping and the excitement of bidding", response.data)
@@ -1074,7 +1114,7 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertIn(b"Manage this product", product_catalog.data)
         self.assertIn(b"#product-casual-sneakers", product_catalog.data)
         home = self.client.get("/")
-        self.assertEqual(home.data.count(b">Manage this product</a>"), 6)
+        self.assertEqual(home.data.count(b">Manage this product</a>"), 8)
         self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', home.data)
         self.assertIn(b'href="/admin/dashboard#product-iphone-14-pro-max-256gb"', self.client.get(
             "/products/iphone-14-pro-max-256gb"
@@ -1152,7 +1192,8 @@ class AuthenticationFlowTests(unittest.TestCase):
         self.assertNotIn(b'id="manageProducts" open', dashboard.data)
         self.assertNotIn(b'id="manageAuctions" open', dashboard.data)
         self.assertNotIn(b"Static image path", dashboard.data)
-        self.assertNotIn(b'name="minimum_increment" type="number" min="1" value="100"', dashboard.data)
+        self.assertIn(b"Automatic bid increases: \xe0\xa7\xb3500 below \xe0\xa7\xb350,000, then \xe0\xa7\xb3100.", dashboard.data)
+        self.assertNotIn(b'name="minimum_increment"', dashboard.data)
         self.assertNotIn(b'name="duration_days" type="number" min="1" max="90" value="7"', dashboard.data)
         with bidmart.database() as connection:
             product_image = connection.execute(
@@ -1332,14 +1373,14 @@ class AuthenticationFlowTests(unittest.TestCase):
             ).fetchone()["id"]
         updated_auction = self.client.post(
             "/admin/auctions/test-desk-light/update",
-            data={"csrf_token": csrf, "minimum_increment": "250", "duration_days": "5"},
+            data={"csrf_token": csrf, "duration_days": "5"},
         )
         self.assertEqual(updated_auction.status_code, 302)
         with bidmart.database() as connection:
             auction = connection.execute(
                 "SELECT minimum_increment, ends_at FROM auctions WHERE id = ?", (auction_id,)
             ).fetchone()
-        self.assertEqual(auction["minimum_increment"], 250)
+        self.assertEqual(auction["minimum_increment"], 500)
         self.assertGreater(auction["ends_at"], int(time.time()) + 4 * 86400)
         self.client.post(
             "/admin/auctions/test-desk-light/close", data={"csrf_token": csrf}
@@ -1967,6 +2008,22 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertNotIn(b"DEMO AUCTION</span>", running_detail.data)
         self.assertNotIn(b"DEMO AUCTION</span>", ended_detail.data)
 
+    def test_running_auctions_are_listed_before_ended_auctions(self):
+        now = int(time.time())
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug = ?",
+                (now + 3600, "smart-watch-bluetooth"),
+            )
+            connection.execute(
+                "UPDATE auctions SET ends_at = ? WHERE slug != ?",
+                (now - 3600, "smart-watch-bluetooth"),
+            )
+
+        response = self.client.get("/auctions")
+        first_card = response.data.split(b"<article", 1)[1].split(b"</article>", 1)[0]
+        self.assertIn(b"Smart Watch (Bluetooth Calling)", first_card)
+
     def test_non_featured_auction_can_open_details_and_accept_a_bid(self):
         self.add_logged_in_bidder()
         slug = "smart-watch-bluetooth"
@@ -1979,12 +2036,12 @@ class AuctionFlowTests(unittest.TestCase):
 
         response = self.client.post(f"{detail_url}/bid", data={
             "csrf_token": self.csrf_from(details),
-            "bid_amount": "2300",
+            "bid_amount": "2700",
         })
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], detail_url)
         self.assertIn(
-            "Your bid of ৳ 2,300 was placed successfully.".encode(),
+            "Your bid of ৳ 2,700 was placed successfully.".encode(),
             self.client.get(detail_url).data,
         )
 
@@ -2036,15 +2093,40 @@ class AuctionFlowTests(unittest.TestCase):
         details = self.client.get(self.auction_url)
         response = self.client.post(f"{self.auction_url}/bid", data={
             "csrf_token": self.csrf_from(details),
-            "bid_amount": "92999",
+            "bid_amount": "92599",
         })
         self.assertEqual(response.headers["Location"], self.auction_url)
         page = self.client.get(self.auction_url)
-        self.assertIn(b"Your bid must be at least", page.data)
+        self.assertIn("Your bid must be at least ৳ 92,600.".encode(), page.data)
         self.assertIn("৳ 92,500".encode(), page.data)
         with bidmart.database() as connection:
             bid_count = connection.execute("SELECT COUNT(*) FROM auction_bids").fetchone()[0]
         self.assertEqual(bid_count, 0)
+
+    def test_auction_bid_increment_changes_at_50000(self):
+        self.add_logged_in_bidder()
+        with bidmart.database() as connection:
+            connection.execute(
+                "UPDATE auctions SET current_bid = ? WHERE slug = ?",
+                (49_500, bidmart.DEMO_AUCTION_SLUG),
+            )
+
+        details = self.client.get(self.auction_url)
+        self.assertIn("৳ 50,000".encode(), details.data)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "50000",
+        })
+        self.assertEqual(response.status_code, 302)
+
+        details = self.client.get(self.auction_url)
+        self.assertIn("৳ 50,100".encode(), details.data)
+        response = self.client.post(f"{self.auction_url}/bid", data={
+            "csrf_token": self.csrf_from(details),
+            "bid_amount": "50100",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("Your bid of ৳ 50,100 was placed successfully.".encode(), self.client.get(self.auction_url).data)
 
     def test_ended_auction_rejects_a_bid(self):
         self.add_logged_in_bidder()

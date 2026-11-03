@@ -69,11 +69,16 @@
                         <span>({{ product.reviews }} sample reviews)</span>
                     </a>
 
-                    <div class="product-detail-price">
-                        <strong>৳ {{ "{:,}".format(product.price) }}</strong>
-                        {% if product.old_price %}
-                        <del>৳ {{ "{:,}".format(product.old_price) }}</del>
-                        <span>
+                    <div
+                        class="product-detail-price"
+                        data-unit-price="{{ product.price }}"
+                        data-old-unit-price="{{ product.old_price if product.old_price and product.old_price > product.price else 0 }}"
+                    >
+                        <strong id="productCurrentPrice" aria-live="polite">৳ {{ "{:,}".format(product.price) }}</strong>
+                        <span class="product-price-total-label" id="productPriceTotalLabel" aria-live="polite">Total for 1 item</span>
+                        {% if product.old_price and product.old_price > product.price %}
+                        <del id="productOriginalPrice">৳ {{ "{:,}".format(product.old_price) }}</del>
+                        <span id="productSavings">
                             You save ৳ {{ "{:,}".format(product.old_price - product.price) }}
                         </span>
                         {% else %}
@@ -93,7 +98,7 @@
                         {% endif %}
                     </div>
 
-                    <form method="post" action="{{ url_for('start_checkout') }}">
+                    <form method="post" action="{{ url_for('start_checkout') }}" class="product-detail-actions">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="product_slug" value="{{ product.slug }}">
                         <div class="product-detail-quantity">
@@ -102,6 +107,9 @@
                         </div>
                         <button class="product-detail-buy" id="productBuyNow" type="submit" {% if stock < 1 %}disabled{% endif %}>
                             {% if stock > 0 %}Order Now{% else %}Out of stock{% endif %}
+                        </button>
+                        <button class="product-detail-add-cart" type="submit" formaction="{{ url_for('add_to_cart') }}" {% if stock < 1 %}disabled{% endif %}>
+                            ＋ Add to Cart
                         </button>
                     </form>
 
@@ -200,6 +208,48 @@
     <script>
         const productMainImage = document.getElementById("productMainImage");
         const productMainIcon = document.getElementById("productMainIcon");
+        const productQuantityInput = document.getElementById("productQuantity");
+        const productPriceSummary = document.querySelector(".product-detail-price");
+        const productCurrentPrice = document.getElementById("productCurrentPrice");
+        const productOriginalPrice = document.getElementById("productOriginalPrice");
+        const productSavings = document.getElementById("productSavings");
+        const productPriceTotalLabel = document.getElementById("productPriceTotalLabel");
+        const priceFormatter = new Intl.NumberFormat("en-US");
+
+        function updateProductTotal() {
+            const enteredQuantity = Number(productQuantityInput.value);
+            const maxQuantity = Number(productQuantityInput.max);
+            const quantity = Math.min(
+                Number.isInteger(enteredQuantity) && enteredQuantity > 0 ? enteredQuantity : 1,
+                Number.isInteger(maxQuantity) && maxQuantity > 0 ? maxQuantity : Number.MAX_SAFE_INTEGER
+            );
+            const unitPrice = Number(productPriceSummary.dataset.unitPrice);
+            const oldUnitPrice = Number(productPriceSummary.dataset.oldUnitPrice);
+            const totalPrice = unitPrice * quantity;
+
+            productCurrentPrice.textContent = `৳ ${priceFormatter.format(totalPrice)}`;
+            productPriceTotalLabel.textContent = `Total for ${quantity} ${quantity === 1 ? "item" : "items"}`;
+
+            if (productOriginalPrice && productSavings) {
+                productOriginalPrice.textContent = `৳ ${priceFormatter.format(oldUnitPrice * quantity)}`;
+                productSavings.textContent = `You save ৳ ${priceFormatter.format((oldUnitPrice - unitPrice) * quantity)}`;
+            }
+        }
+
+        productQuantityInput.addEventListener("input", updateProductTotal);
+        productQuantityInput.addEventListener("change", function() {
+            const enteredQuantity = Number(productQuantityInput.value);
+            const maxQuantity = Number(productQuantityInput.max);
+            const maxAllowed = Number.isInteger(maxQuantity) && maxQuantity > 0
+                ? maxQuantity
+                : Number.MAX_SAFE_INTEGER;
+            const quantity = Number.isInteger(enteredQuantity) && enteredQuantity > 0
+                ? Math.min(enteredQuantity, maxAllowed)
+                : 1;
+
+            productQuantityInput.value = String(quantity);
+            updateProductTotal();
+        });
 
         document.querySelectorAll(".product-detail-thumbnail").forEach(function(thumbnail) {
             thumbnail.addEventListener("click", function() {
