@@ -16,7 +16,7 @@
     <section class="hero">
         <div class="container hero-content">
             <div class="hero-text">
-                <p class="tagline">WELCOME TO BIDMART</p>
+                <p class="tagline">{% if current_user_email %}Welcome back to BidMart, {{ current_user_name or current_user_email }}{% else %}Welcome to BidMart{% endif %}</p>
                 <h1>Shop Smart.<br>Bid Better.</h1>
                 <p class="hero-description">
                     Discover amazing products, enjoy easy online shopping,
@@ -38,6 +38,7 @@
 
     <section class="promotional-cards" aria-label="Live auction and special discount">
         <div class="container promotional-grid">
+            {% if featured_auction %}
             <article class="promotional-card promotional-auction">
                 <div class="promo-auction-image">
                     <span class="promo-live-badge" id="homeAuctionStatus">
@@ -73,6 +74,7 @@
                     </a>
                 </div>
             </article>
+            {% endif %}
 
             <article class="promotional-card promotional-discount">
                 <div class="promo-discount-copy">
@@ -102,6 +104,7 @@
         </div>
     </section>
 
+    {% if featured_auction %}
     <script>
         const homeAuctionCountdown = document.getElementById("homeAuctionCountdown");
         const homeAuctionEndTime = Number(homeAuctionCountdown.dataset.endsAt) * 1000;
@@ -136,6 +139,7 @@
         updateHomeAuctionCountdown();
         window.setInterval(updateHomeAuctionCountdown, 1000);
     </script>
+    {% endif %}
 
     <!-- Products Section শুরু: কিছু উদাহরণ পণ্য দেখায় -->
     <section class="products section-padding" id="products"> <!-- id="products" দিয়ে menu link কাজ করে -->
@@ -147,7 +151,7 @@
                 <p>Explore some of our popular products.</p> <!-- Section-এর বর্ণনা -->
             </div> <!-- Section heading শেষ -->
 
-            <div class="product-grid" id="productGrid">
+            <div class="product-grid catalog-grid" id="productGrid">
                 {% for product in featured_products %}
                 {% set stock = product_inventory.get(product.slug, 0) %}
                 <article class="product-card">
@@ -212,7 +216,7 @@
     <script>
         const productCards = document.querySelectorAll("#productGrid .product-card");
         const showAllProductsButton = document.getElementById("showAllProducts");
-        const initiallyVisibleProductCount = 3;
+        const initiallyVisibleProductCount = 4;
 
         if (productCards.length > initiallyVisibleProductCount) {
             const additionalProductCards = Array.from(productCards).slice(initiallyVisibleProductCount);

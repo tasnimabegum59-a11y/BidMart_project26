@@ -62,6 +62,8 @@ The home page, product catalog, and product detail pages offer **Know Details**,
 
 Delivery is ৳60 for Dhaka and ৳120 for the other listed divisions. The demo coupon `SAVE50` deducts ৳50 from orders of at least ৳500. COD orders are confirmed with payment status `unpaid`.
 
+Auction bids must be at least ৳500 above the current bid while it is below ৳50,000. At ৳50,000 and above, the minimum increase is ৳100.
+
 ### SSLCOMMERZ setup
 
 Online checkout uses the SSLCOMMERZ hosted payment page. Add these values to the private `.env` file; never commit or share the store password:

@@ -45,22 +45,20 @@
             <a href="{% if active_page == 'home' %}index.html{% else %}{{ url_for('home') }}{% endif %}"{% if active_page == "home" %} class="active" aria-current="page"{% endif %}>Home</a>
             <a href="{{ url_for('products_page') }}"{% if active_page == "products" %} class="active" aria-current="page"{% endif %}>Products</a>
             <a href="{{ url_for('auctions_page') }}"{% if active_page == "auctions" %} class="active" aria-current="page"{% endif %}>Auctions</a>
-            <a href="{{ url_for('offers_page') }}"{% if active_page == "offers" %} class="active" aria-current="page"{% endif %}>Offers</a>
-            {% if active_page == "home" %}
-            <a href="#about">About</a>
-            {% else %}
-            <a href="{{ url_for('home') }}#about">About</a>
-            {% endif %}
+            <a href="{% if current_user_role in ('admin', 'superadmin') %}{{ url_for('admin_dashboard') }}{% elif current_user_email %}{{ url_for('my_orders_page') }}{% else %}{{ url_for('login_page') }}{% endif %}"{% if active_page in ("admin_dashboard", "profile", "my_orders") %} class="active" aria-current="page"{% endif %}>Dashboard</a>
         </nav>
 
         <div class="nav-buttons">
-            <a href="{{ url_for('my_cart_page') }}" class="cart-nav-link"{% if active_page == "cart" %} aria-current="page"{% endif %}>
-                <span aria-hidden="true">🛒</span> Cart
+            <a href="{{ url_for('my_cart_page') }}" class="cart-nav-link"{% if active_page == "cart" %} aria-current="page"{% endif %} aria-label="Cart, {{ cart_count }} items">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 4h2l2.2 10.1a2 2 0 0 0 2 1.6h8.5a2 2 0 0 0 1.9-1.4L21 8H6" />
+                    <circle cx="10" cy="20" r="1.2" />
+                    <circle cx="18" cy="20" r="1.2" />
+                </svg>
                 <span class="cart-nav-count" aria-label="{{ cart_count }} items">{{ cart_count }}</span>
             </a>
             {% if not current_user_email %}
-            <a href="{{ url_for('login_page') }}" class="login-btn">Login</a>
-            <a href="{{ url_for('registration_page') }}" class="register-btn">Register</a>
+            <a href="{{ url_for('login_page') }}" class="account-nav-link{% if active_page == 'account' %} is-active{% endif %}">Account</a>
             {% endif %}
         </div>
     </div>

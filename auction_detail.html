@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Review the iPhone 14 Pro Max demo auction details, current bid, rules, and recent bids before bidding.">
-    <title>iPhone 14 Pro Max Auction | BidMart</title>
+    <meta name="description" content="Review {{ auction.name }} auction details, current bid, bidding increments, and recent bids.">
+    <title>{{ auction.name }} Auction | BidMart</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
     <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
 </head>
@@ -28,62 +28,67 @@
         {% endwith %}
 
         <section class="auction-detail-card" aria-labelledby="auctionTitle">
-            <div class="auction-detail-gallery">
-                <span class="auction-live-badge{% if auction.ends_at <= now %} is-ended{% endif %}" id="auctionStatusBadge">
-                    <span aria-hidden="true"></span>
-                    <span data-auction-status-text>{% if auction.ends_at <= now %}ENDED AUCTION{% else %}RUNNING AUCTION{% endif %}</span>
-                </span>
-                {% if auction.image %}
-                <img
-                    class="auction-detail-image"
-                    src="{{ url_for('static', filename=auction.image) }}"
-                    alt="{{ auction.name }}"
-                >
-                {% else %}
-                <span class="auction-detail-icon" aria-hidden="true">{{ auction.icon }}</span>
-                {% endif %}
-                <p class="auction-image-caption">{{ auction.category }} · Demo auction listing</p>
+            <div class="auction-detail-product">
+                <div class="auction-detail-gallery">
+                    <span class="auction-live-badge{% if auction.ends_at <= now %} is-ended{% endif %}" id="auctionStatusBadge">
+                        <span aria-hidden="true"></span>
+                        <span data-auction-status-text>{% if auction.ends_at <= now %}ENDED AUCTION{% else %}RUNNING AUCTION{% endif %}</span>
+                    </span>
+                    {% if auction.image %}
+                    <img
+                        class="auction-detail-image"
+                        src="{{ url_for('static', filename=auction.image) }}"
+                        alt="{{ auction.name }}"
+                    >
+                    {% else %}
+                    <span class="auction-detail-icon" aria-hidden="true">{{ auction.icon }}</span>
+                    {% endif %}
+                </div>
+                <div class="auction-product-heading">
+                    <p class="auction-eyebrow">{{ auction.category }} · BIDMART AUCTION</p>
+                    <h1 id="auctionTitle">{{ auction.name }}</h1>
+                    <p class="auction-product-meta">{{ auction.description }}</p>
+                    <div class="auction-product-stats">
+                        <div>
+                            <span>Current bid</span>
+                            <strong class="auction-current-bid">৳ {{ "{:,}".format(auction.current_bid) }}</strong>
+                        </div>
+                        <div class="auction-countdown" aria-live="polite">
+                            <span class="auction-clock" aria-hidden="true">◷</span>
+                            <div>
+                                <span class="auction-countdown-label">Time remaining</span>
+                                <strong id="auctionCountdown" data-ends-at="{{ auction.ends_at }}">Calculating…</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="auction-detail-information">
-                <p class="auction-eyebrow">BIDMART FEATURED AUCTION</p>
-                <h1 id="auctionTitle">{{ auction.name }}</h1>
-                <p class="auction-product-meta">{{ auction.category }} <span>·</span> {{ auction.description }}</p>
-
-                <div class="auction-countdown" aria-live="polite">
-                    <span class="auction-clock" aria-hidden="true">◷</span>
-                    <div>
-                        <span class="auction-countdown-label">Time remaining</span>
-                        <strong id="auctionCountdown" data-ends-at="{{ auction.ends_at }}">Calculating…</strong>
+            <div class="auction-detail-side">
+                <section class="auction-information-panel auction-bidding-panel" aria-labelledby="placeBidTitle">
+                    <div class="auction-panel-heading">
+                        <h2 id="placeBidTitle">Place your bid</h2>
+                        <span>Demo auction</span>
                     </div>
-                </div>
-
-                <div class="auction-bid-summary">
-                    <div>
-                        <span>Original price</span>
-                        <strong class="auction-original-price">৳ {{ "{:,}".format(auction.original_price) }}</strong>
+                    <div class="auction-bid-summary">
+                        <div>
+                            <span>Original price</span>
+                            <strong class="auction-original-price">৳ {{ "{:,}".format(auction.original_price) }}</strong>
+                        </div>
+                        <div>
+                            <span>Current highest bid</span>
+                            <strong class="auction-current-bid">৳ {{ "{:,}".format(auction.current_bid) }}</strong>
+                        </div>
+                        <div>
+                            <span>Next minimum bid</span>
+                            <strong>৳ {{ "{:,}".format(minimum_bid) }}</strong>
+                        </div>
                     </div>
-                    <div>
-                        <span>Current highest bid</span>
-                        <strong class="auction-current-bid">৳ {{ "{:,}".format(auction.current_bid) }}</strong>
-                    </div>
-                    <div>
-                        <span>Next minimum bid</span>
-                        <strong>৳ {{ "{:,}".format(minimum_bid) }}</strong>
-                    </div>
-                </div>
-
-                <div class="auction-demo-notice">
-                    <strong>Demo auction</strong>
-                    <p>This is a sample BidMart auction for demonstration. Bids are recorded in this project, but no real payment, delivery, or product sale takes place.</p>
-                </div>
-
-                {% if current_user_email %}
-                    {% if auction.ends_at > now %}
-                    <form class="auction-bid-form" action="{{ url_for('place_bid', slug=auction.slug) }}" method="post">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <label for="bidAmount">Your bid (৳)</label>
-                        <div class="auction-bid-input-row">
+                    {% if current_user_email %}
+                        {% if auction.ends_at > now %}
+                        <form class="auction-bid-form" action="{{ url_for('place_bid', slug=auction.slug) }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <label for="bidAmount">Your maximum bid (৳)</label>
                             <input
                                 id="bidAmount"
                                 name="bid_amount"
@@ -95,19 +100,51 @@
                                 required
                             >
                             <button type="submit" class="auction-place-bid">⚒ Place Your Bid</button>
-                        </div>
-                        <p>Bids must be at least ৳ {{ "{:,}".format(minimum_increment) }} higher than the current bid.</p>
-                    </form>
+                            <p>Minimum increase: ৳ {{ "{:,}".format(minimum_increment) }}. Your bid stays private.</p>
+                        </form>
+                        {% else %}
+                        <div class="auction-ended-notice">This auction has ended and is no longer accepting bids.</div>
+                        {% endif %}
                     {% else %}
-                    <div class="auction-ended-notice">This auction has ended and is no longer accepting bids.</div>
-                    {% endif %}
-                {% else %}
                     <div class="auction-login-prompt">
-                        <p>Log in or create a verified BidMart account to place a bid.</p>
+                        <p>Sign in to a verified account to place your bid.</p>
                         <a class="auction-place-bid" href="{{ url_for('login_page', next=auction_url) }}">Login to Bid</a>
                         <a class="order-continue-link" href="{{ url_for('registration_page', next=auction_url) }}">Create an account</a>
                     </div>
-                {% endif %}
+                    {% endif %}
+                    <div class="auction-demo-notice">
+                        <strong>Demo auction</strong>
+                        <p>Minimum increase: ৳500 below ৳50,000 and ৳100 at or above ৳50,000. No real payment or delivery takes place.</p>
+                    </div>
+                </section>
+
+                <section class="auction-information-panel auction-history-panel" aria-labelledby="bidHistoryTitle">
+                    <div class="auction-history-heading">
+                        <div>
+                            <p class="auction-eyebrow">TRANSPARENT BIDDING</p>
+                            <h2 id="bidHistoryTitle">Recent bid history</h2>
+                        </div>
+                        <span>{{ recent_bids|length }} recent</span>
+                    </div>
+                    {% if recent_bids %}
+                    <div class="auction-history-table-wrap">
+                        <table class="auction-history-table">
+                            <thead><tr><th scope="col">Bidder</th><th scope="col">Amount</th><th scope="col">Date and time</th></tr></thead>
+                            <tbody>
+                                {% for bid in recent_bids %}
+                                <tr>
+                                    <td>{{ bid.bidder_label }}</td>
+                                    <td>৳ {{ "{:,}".format(bid.amount) }}</td>
+                                    <td><time datetime="{{ bid.created_at }}">{{ bid.created_at|datetime }}</time></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="auction-empty-history">No bids yet. Be the first to make a demo bid.</p>
+                    {% endif %}
+                </section>
             </div>
         </section>
 
@@ -136,33 +173,6 @@
             </section>
         </div>
 
-        <section class="auction-information-panel auction-history-panel" aria-labelledby="bidHistoryTitle">
-            <div class="auction-history-heading">
-                <div>
-                    <p class="auction-eyebrow">TRANSPARENT BIDDING</p>
-                    <h2 id="bidHistoryTitle">Recent bid history</h2>
-                </div>
-                <span>{{ recent_bids|length }} recent bid{% if recent_bids|length != 1 %}s{% endif %}</span>
-            </div>
-            {% if recent_bids %}
-            <div class="auction-history-table-wrap">
-                <table class="auction-history-table">
-                    <thead><tr><th scope="col">Bidder</th><th scope="col">Bid amount</th><th scope="col">Date and time</th></tr></thead>
-                    <tbody>
-                        {% for bid in recent_bids %}
-                        <tr>
-                            <td>{{ bid.bidder_label }}</td>
-                            <td>৳ {{ "{:,}".format(bid.amount) }}</td>
-                            <td><time datetime="{{ bid.created_at }}">{{ bid.created_at|datetime }}</time></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="auction-empty-history">No bids have been placed yet. Be the first to make a demo bid.</p>
-            {% endif %}
-        </section>
     </main>
 
     {% include "site_footer.html" %}

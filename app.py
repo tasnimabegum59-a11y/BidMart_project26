@@ -27,6 +27,9 @@ INSTANCE = ROOT / "instance"
 DATABASE = INSTANCE / "bidmart.sqlite3"
 DEVELOPMENT_SECRET_FILE = INSTANCE / "flask-secret.key"
 DEMO_AUCTION_SLUG = "iphone-14-pro-max"
+AUCTION_INCREMENT_THRESHOLD = 50_000
+AUCTION_INCREMENT_BELOW_THRESHOLD = 500
+AUCTION_INCREMENT_AT_THRESHOLD = 100
 AUCTION_LISTINGS = (
     {
         "slug": DEMO_AUCTION_SLUG,
@@ -50,7 +53,7 @@ AUCTION_LISTINGS = (
         "original_price": 4000,
         "starting_bid": 2200,
         "duration_days": 3,
-        "minimum_increment": 100,
+        "minimum_increment": 500,
     },
     {
         "slug": "jbl-wireless-headphones",
@@ -62,7 +65,7 @@ AUCTION_LISTINGS = (
         "original_price": 5000,
         "starting_bid": 1800,
         "duration_days": 5,
-        "minimum_increment": 100,
+        "minimum_increment": 500,
     },
     {
         "slug": "casual-sneakers",
@@ -74,7 +77,7 @@ AUCTION_LISTINGS = (
         "original_price": 2500,
         "starting_bid": 1200,
         "duration_days": 2,
-        "minimum_increment": 100,
+        "minimum_increment": 500,
     },
     {
         "slug": "wireless-earbuds",
@@ -86,7 +89,7 @@ AUCTION_LISTINGS = (
         "original_price": 2500,
         "starting_bid": 1000,
         "duration_days": 4,
-        "minimum_increment": 100,
+        "minimum_increment": 500,
     },
     {
         "slug": "ideapad-slim-3-laptop",
@@ -373,7 +376,7 @@ def initialize_database():
                 current_bid INTEGER NOT NULL CHECK (current_bid >= 0),
                 ends_at INTEGER NOT NULL,
                 starting_bid INTEGER NOT NULL DEFAULT 0,
-                minimum_increment INTEGER NOT NULL DEFAULT 100,
+                minimum_increment INTEGER NOT NULL DEFAULT 500,
                 is_active INTEGER NOT NULL DEFAULT 1
             )"""
         )
@@ -382,7 +385,7 @@ def initialize_database():
         }
         for column, definition in (
             ("starting_bid", "INTEGER NOT NULL DEFAULT 0"),
-            ("minimum_increment", "INTEGER NOT NULL DEFAULT 100"),
+            ("minimum_increment", "INTEGER NOT NULL DEFAULT 500"),
             ("is_active", "INTEGER NOT NULL DEFAULT 1"),
         ):
             if column not in auction_columns:
@@ -932,7 +935,14 @@ def home():
         for product in PRODUCT_CATALOG[:6]
         if product["slug"] in products_by_slug
     ]
-    auction, _ = get_auction(DEMO_AUCTION_SLUG)
+    with database() as connection:
+        has_featured_auction = connection.execute(
+            "SELECT 1 FROM auctions AS a "
+            "JOIN catalog_products AS p ON p.slug = a.slug "
+            "WHERE a.slug = ? AND a.is_active = 1 AND p.is_active = 1",
+            (DEMO_AUCTION_SLUG,),
+        ).fetchone()
+    auction = get_auction(DEMO_AUCTION_SLUG)[0] if has_featured_auction else None
     featured_offers = get_offer_listings()[:3]
     max_offer_discount = max(
         (offer["discount_percent"] for offer in featured_offers), default=0
@@ -1900,6 +1910,7 @@ def auctions_page():
         {**listing, "is_ended": listing["ends_at"] <= now}
         for listing in get_auction_listings()
     ]
+    listings.sort(key=lambda listing: (listing["is_ended"], listing["ends_at"]))
     return render_template(
         "auctions.html",
         auctions=listings,
@@ -1930,7 +1941,7 @@ def offers_page():
 def get_auction(slug):
     with database() as connection:
         auction = connection.execute(
-            "SELECT a.id, a.slug, a.current_bid, a.ends_at, a.minimum_increment, "
+            "SELECT a.id, a.slug, a.current_bid, a.ends_at, "
             "p.name, p.category, p.description, p.image, p.icon, p.price AS original_price "
             "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug "
             "WHERE a.slug = ? AND a.is_active = 1 AND p.is_active = 1",
@@ -1948,10 +1959,17 @@ def get_auction(slug):
     return dict(auction), recent_bids
 
 
+def auction_bid_increment(current_bid):
+    if current_bid < AUCTION_INCREMENT_THRESHOLD:
+        return AUCTION_INCREMENT_BELOW_THRESHOLD
+    return AUCTION_INCREMENT_AT_THRESHOLD
+
+
 @app.get("/auction/<slug>")
 @app.get("/auction/" + DEMO_AUCTION_SLUG, defaults={"slug": DEMO_AUCTION_SLUG})
 def auction_details(slug):
     auction, recent_bids = get_auction(slug)
+    minimum_increment = auction_bid_increment(auction["current_bid"])
     bidder_history = []
     for bid in recent_bids:
         name_parts = bid["full_name"].split()
@@ -1969,8 +1987,8 @@ def auction_details(slug):
         current_user_name=session.get("user_name"),
         current_user_email=session.get("user_email"),
         active_page="auctions",
-        minimum_bid=auction["current_bid"] + auction["minimum_increment"],
-        minimum_increment=auction["minimum_increment"],
+        minimum_bid=auction["current_bid"] + minimum_increment,
+        minimum_increment=minimum_increment,
         now=int(time.time()),
     )
 
@@ -2013,7 +2031,7 @@ def place_bid(slug):
         if auction["ends_at"] <= now:
             flash("This auction has ended and is no longer accepting bids.", "error")
             return redirect(auction_url)
-        minimum_bid = auction["current_bid"] + listing["minimum_increment"]
+        minimum_bid = auction["current_bid"] + auction_bid_increment(auction["current_bid"])
         if amount < minimum_bid:
             flash(f"Your bid must be at least ৳ {minimum_bid:,}.", "error")
             return redirect(auction_url)
@@ -2360,7 +2378,7 @@ def get_product(slug, include_inactive=False):
 
 def get_auction_listings(include_inactive=False):
     query = (
-        "SELECT a.slug, a.current_bid, a.ends_at, a.starting_bid, a.minimum_increment, "
+        "SELECT a.slug, a.current_bid, a.ends_at, a.starting_bid, "
         "a.is_active, p.name, p.category, p.description, p.image, p.icon, p.price AS original_price, "
         "p.old_price, p.features_json, p.show_in_catalog, i.stock "
         "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug"
@@ -2689,13 +2707,12 @@ def admin_create_auction():
     if existing_slug and not request.form.get("slug"):
         try:
             starting_bid = int(request.form.get("starting_bid", ""))
-            increment = int(request.form.get("minimum_increment", ""))
             duration = int(request.form.get("duration_days", ""))
         except ValueError:
-            flash("Starting bid, bid increment, and duration must be whole numbers.", "error")
+            flash("Starting bid and duration must be whole numbers.", "error")
             return redirect(url_for("admin_dashboard") + "#auctions")
-        if starting_bid < 1 or increment < 1 or not 1 <= duration <= 90:
-            flash("Enter positive bid amounts and an auction duration from 1 to 90 days.", "error")
+        if starting_bid < 1 or not 1 <= duration <= 90:
+            flash("Enter a positive starting bid and an auction duration from 1 to 90 days.", "error")
             return redirect(url_for("admin_dashboard") + "#auctions")
         if not get_product(existing_slug):
             flash("Choose an active product to auction.", "error")
@@ -2707,7 +2724,7 @@ def admin_create_auction():
                     (slug, current_bid, ends_at, starting_bid, minimum_increment, is_active)
                     VALUES (?, ?, ?, ?, ?, 1)""",
                     (existing_slug, starting_bid, int(time.time()) + duration * 86400,
-                     starting_bid, increment),
+                     starting_bid, AUCTION_INCREMENT_BELOW_THRESHOLD),
                 )
             except sqlite3.IntegrityError:
                 flash("This product already has an auction listing.", "error")
@@ -2724,13 +2741,12 @@ def admin_create_auction():
         return redirect(url_for("admin_dashboard") + "#auctions")
     try:
         starting_bid = int(request.form.get("starting_bid", ""))
-        increment = int(request.form.get("minimum_increment", ""))
         duration = int(request.form.get("duration_days", ""))
     except ValueError:
-        flash("Starting bid, bid increment, and duration must be whole numbers.", "error")
+        flash("Starting bid and duration must be whole numbers.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
-    if starting_bid < 1 or increment < 1 or not 1 <= duration <= 90:
-        flash("Enter positive bid amounts and an auction duration from 1 to 90 days.", "error")
+    if starting_bid < 1 or not 1 <= duration <= 90:
+        flash("Enter a positive starting bid and an auction duration from 1 to 90 days.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
     image_file = request.files.get("image")
     values, error = _admin_product_values(request.form, image_file)
@@ -2760,7 +2776,8 @@ def admin_create_auction():
                 """INSERT INTO auctions
                 (slug, current_bid, ends_at, starting_bid, minimum_increment, is_active)
                 VALUES (?, ?, ?, ?, ?, 1)""",
-                (values["slug"], starting_bid, now + duration * 86400, starting_bid, increment),
+                (values["slug"], starting_bid, now + duration * 86400,
+                 starting_bid, AUCTION_INCREMENT_BELOW_THRESHOLD),
             )
     except sqlite3.IntegrityError:
         if image_path:
@@ -2855,13 +2872,12 @@ def admin_close_auction(slug):
 def admin_update_auction(slug):
     require_staff()
     try:
-        increment = int(request.form.get("minimum_increment", ""))
         duration = int(request.form.get("duration_days", ""))
     except ValueError:
-        flash("Bid increment and duration must be whole numbers.", "error")
+        flash("Auction duration must be a whole number.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
-    if increment < 1 or not 1 <= duration <= 90:
-        flash("Enter a positive bid increment and an auction duration from 1 to 90 days.", "error")
+    if not 1 <= duration <= 90:
+        flash("Enter an auction duration from 1 to 90 days.", "error")
         return redirect(url_for("admin_dashboard") + "#auctions")
     product_update = _update_auction_product(slug)
     if product_update is None:
@@ -2869,8 +2885,8 @@ def admin_update_auction(slug):
     values, image_path = product_update
     with database() as connection:
         result = connection.execute(
-            "UPDATE auctions SET minimum_increment = ?, ends_at = ? WHERE slug = ? AND is_active = 1",
-            (increment, int(time.time()) + duration * 86400, slug),
+            "UPDATE auctions SET ends_at = ? WHERE slug = ? AND is_active = 1",
+            (int(time.time()) + duration * 86400, slug),
         )
         if result.rowcount and values:
             _save_auction_product_update(connection, slug, values, image_path)
