@@ -7349,3 +7349,72 @@ body {
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+.primary-btn,
+.register-btn,
+.register-button,
+.promo-auction-button,
+.promo-shop-button,
+.role-request-approve,
+.product-buy-btn:not(:disabled),
+.product-detail-buy:not(:disabled),
+.catalog-grid .product-actions .product-btn:not(:disabled),
+.checkout-submit:not(:disabled),
+.auction-place-bid:not(:disabled),
+.auction-card-bid:not(.is-disabled),
+.cart-order-button:not(:disabled),
+.admin-action-primary:not(:disabled),
+.show-all-products,
+.profile-trigger,
+.account-nav-link {
+    border-color: #F2A900;
+    background: #F2A900;
+    color: #1b1b1b;
+}
+
+.product-btn {
+    border-color: #F2A900;
+    color: #1b1b1b;
+}
+
+.primary-btn:hover,
+.primary-btn:focus-visible,
+.register-btn:hover,
+.register-btn:focus-visible,
+.register-button:hover,
+.register-button:focus-visible,
+.promo-auction-button:hover,
+.promo-auction-button:focus-visible,
+.promo-shop-button:hover,
+.promo-shop-button:focus-visible,
+.role-request-approve:hover,
+.role-request-approve:focus-visible,
+.product-btn:hover,
+.product-btn:focus-visible,
+.product-buy-btn:not(:disabled):hover,
+.product-buy-btn:not(:disabled):focus-visible,
+.product-detail-buy:not(:disabled):hover,
+.product-detail-buy:not(:disabled):focus-visible,
+.catalog-grid .product-actions .product-btn:not(:disabled):hover,
+.catalog-grid .product-actions .product-btn:not(:disabled):focus-visible,
+.checkout-submit:not(:disabled):hover,
+.checkout-submit:not(:disabled):focus-visible,
+.auction-place-bid:not(:disabled):hover,
+.auction-place-bid:not(:disabled):focus-visible,
+.auction-card-bid:not(.is-disabled):hover,
+.auction-card-bid:not(.is-disabled):focus-visible,
+.cart-order-button:not(:disabled):hover,
+.cart-order-button:not(:disabled):focus-visible,
+.admin-action-primary:not(:disabled):hover,
+.admin-action-primary:not(:disabled):focus-visible,
+.show-all-products:hover,
+.show-all-products:focus-visible,
+.profile-trigger:hover,
+.profile-trigger:focus-visible,
+.account-nav-link:hover,
+.account-nav-link:focus-visible {
+    border-color: #CC6F00;
+    background: #CC6F00;
+    color: #1b1b1b;
+    filter: none;
+}
