@@ -7367,13 +7367,13 @@ body {
 .show-all-products,
 .profile-trigger,
 .account-nav-link {
-    border-color: #F2A900;
-    background: #F2A900;
+    border-color: #FFD166;
+    background: #FFD166;
     color: #1b1b1b;
 }
 
 .product-btn {
-    border-color: #F2A900;
+    border-color: #FFD166;
     color: #1b1b1b;
 }
 
@@ -7413,8 +7413,8 @@ body {
 .profile-trigger:focus-visible,
 .account-nav-link:hover,
 .account-nav-link:focus-visible {
-    border-color: #CC6F00;
-    background: #CC6F00;
+    border-color: #FF9F1C;
+    background: #FF9F1C;
     color: #1b1b1b;
     filter: none;
 }
