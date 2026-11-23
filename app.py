@@ -488,6 +488,10 @@ def initialize_database():
         if "stock_reserved" not in order_columns:
             connection.execute("ALTER TABLE orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 0")
         connection.execute(
+            "UPDATE orders SET payment_status = 'paid' "
+            "WHERE payment_method = 'cod' AND order_status = 'delivered' AND payment_status = 'unpaid'"
+        )
+        connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_orders_account_created "
             "ON orders(account_id, created_at DESC)"
         )
@@ -942,7 +946,10 @@ def home():
             "WHERE a.slug = ? AND a.is_active = 1 AND p.is_active = 1",
             (DEMO_AUCTION_SLUG,),
         ).fetchone()
-    auction = get_auction(DEMO_AUCTION_SLUG)[0] if has_featured_auction else None
+    auction = (
+        format_auction_result(get_auction(DEMO_AUCTION_SLUG)[0], session.get("user_id"))
+        if has_featured_auction else None
+    )
     featured_offers = get_offer_listings()[:3]
     max_offer_discount = max(
         (offer["discount_percent"] for offer in featured_offers), default=0
@@ -1907,7 +1914,10 @@ def track_order(order_number, token):
 def auctions_page():
     now = int(time.time())
     listings = [
-        {**listing, "is_ended": listing["ends_at"] <= now}
+        {
+            **format_auction_result(listing, session.get("user_id")),
+            "is_ended": listing["ends_at"] <= now,
+        }
         for listing in get_auction_listings()
     ]
     listings.sort(key=lambda listing: (listing["is_ended"], listing["ends_at"]))
@@ -1942,8 +1952,13 @@ def get_auction(slug):
     with database() as connection:
         auction = connection.execute(
             "SELECT a.id, a.slug, a.current_bid, a.ends_at, "
-            "p.name, p.category, p.description, p.image, p.icon, p.price AS original_price "
+            "p.name, p.category, p.description, p.image, p.icon, p.price AS original_price, "
+            "winning_bid.amount AS winning_bid, winner.full_name AS winner_name, "
+            "winning_bid.account_id AS winner_account_id "
             "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug "
+            "LEFT JOIN auction_bids AS winning_bid ON winning_bid.id = ("
+            "SELECT id FROM auction_bids WHERE auction_id = a.id ORDER BY amount DESC, id DESC LIMIT 1) "
+            "LEFT JOIN accounts AS winner ON winner.id = winning_bid.account_id "
             "WHERE a.slug = ? AND a.is_active = 1 AND p.is_active = 1",
             (slug,),
         ).fetchone()
@@ -1959,6 +1974,21 @@ def get_auction(slug):
     return dict(auction), recent_bids
 
 
+def format_auction_result(auction, current_user_id=None):
+    winner_name = auction.pop("winner_name", None)
+    winner_account_id = auction.pop("winner_account_id", None)
+    auction["winner_label"] = mask_bidder_name(winner_name) if winner_name else None
+    auction["winner_is_current_user"] = (
+        winner_account_id is not None and winner_account_id == current_user_id
+    )
+    return auction
+
+
+def mask_bidder_name(full_name):
+    name_parts = full_name.split()
+    return " ".join(f"{part[0]}***" for part in name_parts if part) or "Bidder"
+
+
 def auction_bid_increment(current_bid):
     if current_bid < AUCTION_INCREMENT_THRESHOLD:
         return AUCTION_INCREMENT_BELOW_THRESHOLD
@@ -1969,15 +1999,14 @@ def auction_bid_increment(current_bid):
 @app.get("/auction/" + DEMO_AUCTION_SLUG, defaults={"slug": DEMO_AUCTION_SLUG})
 def auction_details(slug):
     auction, recent_bids = get_auction(slug)
+    auction = format_auction_result(auction, session.get("user_id"))
     minimum_increment = auction_bid_increment(auction["current_bid"])
     bidder_history = []
     for bid in recent_bids:
-        name_parts = bid["full_name"].split()
-        bidder_label = " ".join(f"{part[0]}***" for part in name_parts if part)
         bidder_history.append({
             "amount": bid["amount"],
             "created_at": bid["created_at"],
-            "bidder_label": bidder_label or "Bidder",
+            "bidder_label": mask_bidder_name(bid["full_name"]),
         })
     return render_template(
         "auction_detail.html",
@@ -2380,9 +2409,14 @@ def get_auction_listings(include_inactive=False):
     query = (
         "SELECT a.slug, a.current_bid, a.ends_at, a.starting_bid, "
         "a.is_active, p.name, p.category, p.description, p.image, p.icon, p.price AS original_price, "
-        "p.old_price, p.features_json, p.show_in_catalog, i.stock "
+        "p.old_price, p.features_json, p.show_in_catalog, i.stock, "
+        "winning_bid.amount AS winning_bid, winner.full_name AS winner_name, "
+        "winning_bid.account_id AS winner_account_id "
         "FROM auctions AS a JOIN catalog_products AS p ON p.slug = a.slug"
         " LEFT JOIN product_inventory AS i ON i.product_slug = p.slug"
+        " LEFT JOIN auction_bids AS winning_bid ON winning_bid.id = ("
+        "SELECT id FROM auction_bids WHERE auction_id = a.id ORDER BY amount DESC, id DESC LIMIT 1)"
+        " LEFT JOIN accounts AS winner ON winner.id = winning_bid.account_id"
     )
     if not include_inactive:
         query += " WHERE a.is_active = 1 AND p.is_active = 1"
@@ -3203,8 +3237,10 @@ def admin_update_order_status(order_id):
             flash("An online order must be paid before fulfilment.", "error")
         else:
             connection.execute(
-                "UPDATE orders SET order_status = ? WHERE id = ? AND order_status = ?",
-                (requested_status, order_id, order["order_status"]),
+                "UPDATE orders SET order_status = ?, payment_status = CASE "
+                "WHEN payment_method = 'cod' AND ? = 'delivered' AND payment_status = 'unpaid' "
+                "THEN 'paid' ELSE payment_status END WHERE id = ? AND order_status = ?",
+                (requested_status, requested_status, order_id, order["order_status"]),
             )
             create_notification(
                 connection,

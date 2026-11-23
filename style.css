@@ -461,9 +461,10 @@ a { /* সব link নির্বাচন করে */
 
 .promo-discount-products {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    align-items: end;
-    gap: 5px;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    align-content: center;
+    align-items: stretch;
+    gap: 8px;
 }
 
 .promo-deal-product {
@@ -491,7 +492,7 @@ a { /* সব link নির্বাচন করে */
 .promo-deal-product img {
     display: block;
     width: 100%;
-    height: 75px;
+    height: clamp(120px, 16vw, 170px);
     object-fit: contain;
 }
 
@@ -2777,6 +2778,35 @@ a { /* সব link নির্বাচন করে */
 
 .auction-list-card.is-ended .auction-list-time strong {
     color: #788991;
+}
+
+.auction-result-panel,
+.promo-auction-result {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 11px 13px;
+    border: 1px solid rgba(38, 116, 87, 0.18);
+    border-radius: 10px;
+    background: #f0f7f1;
+    color: #395a49;
+    font-size: 12px;
+}
+
+.auction-result-panel strong,
+.promo-auction-result strong {
+    color: #1c6a4e;
+    font-size: 13px;
+}
+
+.auction-result-panel span,
+.promo-auction-result span {
+    overflow-wrap: anywhere;
+}
+
+.auction-result-panel[hidden],
+.promo-auction-result[hidden] {
+    display: none;
 }
 
 .catalog-grid .product-actions form {

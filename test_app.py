@@ -1527,17 +1527,46 @@ class AuthenticationFlowTests(unittest.TestCase):
             ).fetchone()["order_status"]
         self.assertEqual(status, "confirmed")
 
-        for status in ("processing", "shipped", "delivered"):
+        for status in ("processing", "shipped"):
             response = self.client.post(
                 f"/admin/orders/{order_id}/status",
                 data={"csrf_token": csrf, "order_status": status},
             )
             self.assertEqual(response.status_code, 302)
         with bidmart.database() as connection:
-            status = connection.execute(
-                "SELECT order_status FROM orders WHERE id = ?", (order_id,)
-            ).fetchone()["order_status"]
-        self.assertEqual(status, "delivered")
+            order = connection.execute(
+                "SELECT order_status, payment_status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+        self.assertEqual(tuple(order), ("shipped", "unpaid"))
+
+        delivered = self.client.post(
+            f"/admin/orders/{order_id}/status",
+            data={"csrf_token": csrf, "order_status": "delivered"},
+        )
+        self.assertEqual(delivered.status_code, 302)
+        with bidmart.database() as connection:
+            order = connection.execute(
+                "SELECT order_status, payment_status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+        self.assertEqual(tuple(order), ("delivered", "paid"))
+
+    def test_database_initialization_marks_delivered_cod_orders_paid(self):
+        with bidmart.database() as connection:
+            connection.execute(
+                "INSERT INTO orders (order_number, checkout_key, tracking_token_hash, customer_name, "
+                "customer_phone, division, district, address, subtotal, delivery_fee, discount, total, "
+                "payment_method, order_status, payment_status, created_at) "
+                "VALUES ('BM-LEGACY', 'legacy-checkout', 'legacy-tracking', 'Buyer', '01712345678', "
+                "'Dhaka', 'Dhanmondi', 'House 1', 1000, 60, 0, 1060, 'cod', 'delivered', 'unpaid', 1)"
+            )
+
+        bidmart.initialize_database()
+
+        with bidmart.database() as connection:
+            payment_status = connection.execute(
+                "SELECT payment_status FROM orders WHERE order_number = 'BM-LEGACY'"
+            ).fetchone()["payment_status"]
+        self.assertEqual(payment_status, "paid")
 
     def test_regular_user_cannot_access_admin_dashboard(self):
         with bidmart.database() as connection:
@@ -1972,7 +2001,7 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data.count(b'class="auction-list-card'), len(bidmart.AUCTION_LISTINGS))
         self.assertEqual(response.data.count(b'class="auction-card-bid"'), len(bidmart.AUCTION_LISTINGS))
-        self.assertIn(b"Original price", response.data)
+        self.assertIn(b"Estimated market value", response.data)
         self.assertIn(b"Current bid", response.data)
         self.assertIn(b"Time left:", response.data)
         self.assertIn(b"Wireless Earbuds", response.data)
@@ -2007,6 +2036,39 @@ class AuctionFlowTests(unittest.TestCase):
         self.assertIn(b">ENDED AUCTION</span>", ended_detail.data)
         self.assertNotIn(b"DEMO AUCTION</span>", running_detail.data)
         self.assertNotIn(b"DEMO AUCTION</span>", ended_detail.data)
+        self.assertIn(b"No bids were placed; there is no winner.", ended_detail.data)
+
+    def test_ended_auction_shows_winning_bid_and_winner(self):
+        self.add_logged_in_bidder()
+        with self.client.session_transaction() as session:
+            winner_id = session["user_id"]
+        now = int(time.time())
+        with bidmart.database() as connection:
+            auction = connection.execute(
+                "SELECT id FROM auctions WHERE slug = ?", (bidmart.DEMO_AUCTION_SLUG,)
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO auction_bids (auction_id, account_id, amount, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (auction["id"], winner_id, 93000, now - 60),
+            )
+            connection.execute(
+                "UPDATE auctions SET current_bid = ?, ends_at = ? WHERE id = ?",
+                (93000, now - 1, auction["id"]),
+            )
+
+        detail = self.client.get(self.auction_url)
+        listing = self.client.get("/auctions")
+        homepage = self.client.get("/")
+        for page in (detail, listing, homepage):
+            self.assertIn(b"You won", page.data)
+            self.assertIn(b"Winning bid: \xe0\xa7\xb3 93,000", page.data)
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        public_detail = self.client.get(self.auction_url)
+        self.assertIn(b"Winner: B*** B***", public_detail.data)
+        self.assertNotIn(b"Bidding Buyer", public_detail.data)
 
     def test_running_auctions_are_listed_before_ended_auctions(self):
         now = int(time.time())

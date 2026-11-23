@@ -66,9 +66,21 @@
                         </span>
                     </div>
                     <div class="promo-bid-prices">
-                        <span><small>Original price</small><del>৳ 1,25,000</del></span>
+                        <span><small>Estimated market value</small><del>৳ 1,25,000</del></span>
                         <span><small>Current bid</small><strong>৳ {{ "{:,}".format(featured_auction.current_bid) }}</strong></span>
                     </div>
+                    {% if featured_auction.ends_at <= now %}
+                    <div class="promo-auction-result" role="status">
+                        {% if featured_auction.winner_label %}
+                        <strong>Auction result</strong>
+                        <span>{% if featured_auction.winner_is_current_user %}You won{% else %}Winner: {{ featured_auction.winner_label }}{% endif %}</span>
+                        <span>Winning bid: ৳ {{ "{:,}".format(featured_auction.winning_bid) }}</span>
+                        {% else %}
+                        <strong>Auction ended</strong>
+                        <span>No bids were placed; there is no winner.</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
                     <a class="promo-auction-button" href="{{ url_for('auction_details') }}">
                         <span aria-hidden="true">⚒</span> Place Your Bid
                     </a>
@@ -125,6 +137,11 @@
                 : `${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(seconds)}`;
 
             if (remaining === 0) {
+                if (homeAuctionCountdown.dataset.auctionEnded !== "true") {
+                    homeAuctionCountdown.dataset.auctionEnded = "true";
+                    window.location.reload();
+                    return;
+                }
                 homeAuctionCountdown.dataset.auctionEnded = "true";
                 homeAuctionCountdown.textContent = "Auction ended";
                 homeAuctionCountdown.closest(".promotional-auction").classList.add("is-ended");
