@@ -23,9 +23,21 @@
     {% include "site_header.html" %}
 
     <!-- Login Page-এর মূল অংশ -->
-    <main class="page-container">
+    <main class="account-page container">
+        <div class="account-auth-layout">
+            <aside class="account-pitch">
+                <span class="account-pitch-icon" aria-hidden="true">♙</span>
+                <p class="eyebrow">YOUR BIDMART ACCOUNT</p>
+                <h1>Your finds, bids, and orders. One place.</h1>
+                <p>Save favorites, follow live auctions, and check out with confidence.</p>
+                <span class="account-pitch-footnote">Protected by secure sign-in</span>
+            </aside>
+            <section class="account-form-panel">
+                <nav class="account-tabs" aria-label="Account options">
+                    <a class="is-active" href="{{ url_for('login_page', next=next_url) if next_url else url_for('login_page') }}" aria-current="page">Sign in</a>
+                    <a href="{{ url_for('registration_page', next=next_url) if next_url else url_for('registration_page') }}">Create account</a>
+                </nav>
 
-        <!-- Login Page-এর Heading -->
         <div class="page-heading">
             <p class="eyebrow">WELCOME BACK</p>
 
@@ -115,6 +127,8 @@
 
             </section>
 
+        </div>
+            </section>
         </div>
 
     </main>

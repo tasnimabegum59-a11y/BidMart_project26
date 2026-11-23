@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Browse BidMart auctions, compare original prices and current bids, and see how much time is left.">
+    <meta name="description" content="Browse BidMart auctions, compare estimated market values and current bids, and see how much time is left.">
     <title>Auctions | BidMart</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='bidmart-favicon.png') }}">
     <link rel="stylesheet" href="{{ url_for('stylesheet') }}">
@@ -17,7 +17,7 @@
             <div class="section-heading">
                 <p class="tagline">BID AND WIN</p>
                 <h1>Live Auctions</h1>
-                <p>Explore products, compare current bids with original prices, and see how much time remains.</p>
+                <p>Explore products, compare current bids with estimated market values, and see how much time remains.</p>
                 {% if current_user_role in ("admin", "superadmin") %}
                 <a class="catalog-management-link" href="{{ url_for('admin_dashboard') }}#auctions">Manage auctions</a>
                 {% endif %}
@@ -29,6 +29,8 @@
                 <article
                     class="auction-list-card{% if auction.is_ended %} is-ended{% endif %}"
                     data-ends-at="{{ auction.ends_at }}"
+                    data-now="{{ now }}"
+                    data-auction-ended="{{ 'true' if auction.is_ended else 'false' }}"
                 >
                     <div class="auction-list-image">
                         <span class="auction-list-badge{% if auction.is_ended %} is-ended{% endif %}" data-auction-status>
@@ -46,7 +48,7 @@
                         <p class="auction-list-description">{{ auction.description }}</p>
                         <div class="auction-list-prices">
                             <div>
-                                <span>Original price</span>
+                                <span>Estimated market value</span>
                                 <strong class="auction-list-original">৳ {{ "{:,}".format(auction.original_price) }}</strong>
                             </div>
                             <div>
@@ -59,6 +61,18 @@
                             Time left:
                             <strong data-auction-countdown>{% if auction.is_ended %}Ended{% else %}Calculating…{% endif %}</strong>
                         </p>
+                        {% if auction.is_ended %}
+                        <div class="auction-result-panel" role="status">
+                            {% if auction.winner_label %}
+                            <strong>Auction result</strong>
+                            <span>{% if auction.winner_is_current_user %}You won{% else %}Winner: {{ auction.winner_label }}{% endif %}</span>
+                            <span>Winning bid: ৳ {{ "{:,}".format(auction.winning_bid) }}</span>
+                            {% else %}
+                            <strong>Auction ended</strong>
+                            <span>No bids were placed; there is no winner.</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                         {% if auction.is_ended %}
                         <a class="auction-card-bid is-disabled" href="{{ url_for('auction_details', slug=auction.slug) }}" aria-disabled="true">Auction ended</a>
                         {% else %}
@@ -86,12 +100,20 @@
         document.querySelectorAll(".auction-list-card").forEach(function(card) {
             const countdown = card.querySelector("[data-auction-countdown]");
             const endTime = Number(card.dataset.endsAt) * 1000;
+            const serverTime = Number(card.dataset.now) * 1000;
+            const clockStartedAt = Date.now();
             const bidLink = card.querySelector(".auction-card-bid");
             const statusBadge = card.querySelector("[data-auction-status]");
+            const auctionEndedAtLoad = card.dataset.auctionEnded === "true";
 
             function updateCountdown() {
-                const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+                const now = serverTime + (Date.now() - clockStartedAt);
+                const remaining = Math.max(0, Math.floor((endTime - now) / 1000));
                 if (remaining === 0) {
+                    if (!auctionEndedAtLoad) {
+                        window.location.reload();
+                        return;
+                    }
                     countdown.textContent = "Ended";
                     card.classList.add("is-ended");
                     statusBadge.textContent = "ENDED AUCTION";
